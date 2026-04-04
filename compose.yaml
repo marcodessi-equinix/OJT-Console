@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: 4000
-      FRONTEND_ORIGIN: http://localhost:${FRONTEND_PORT:-8080}
+      FRONTEND_ORIGIN: http://localhost:${FRONTEND_PORT:-9130}
       ADMIN_IDENTIFIER: ${ADMIN_IDENTIFIER:-admin}
       ADMIN_NAME: ${ADMIN_NAME:-OJT Admin}
       ADMIN_PIN: ${ADMIN_PIN:-1234}
@@ -51,7 +51,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "${FRONTEND_PORT:-8080}:80"
+      - "${FRONTEND_PORT:-9130}:80"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ > /dev/null || exit 1"]
       interval: 30s

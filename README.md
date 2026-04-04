@@ -131,7 +131,7 @@ Mindestens diese Variablen solltest du im Stack setzen:
 BACKEND_DATA_PATH=/srv/ojt-console/data
 ENGLISH_DOCUMENTS_SOURCE=/srv/ojt-documents/English
 GERMAN_DOCUMENTS_SOURCE=/srv/ojt-documents/German
-FRONTEND_PORT=8080
+FRONTEND_PORT=9130
 ADMIN_IDENTIFIER=admin
 ADMIN_NAME=OJT Admin
 ADMIN_PIN=1234
@@ -178,7 +178,7 @@ copy .env.example .env
 podman-compose up -d --build
 ```
 
-Danach ist das Frontend unter `http://localhost:8080` erreichbar.
+Danach ist das Frontend unter `http://localhost:9130` erreichbar.
 
 ## Standard-Umgebungsvariablen
 
