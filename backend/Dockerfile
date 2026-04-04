@@ -20,6 +20,7 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 
 COPY backend/package.json ./backend/package.json
+COPY ["frontend/public/Equninx Gloabal Acadaemy.svg", "./frontend/public/Equninx Gloabal Acadaemy.svg"]
 
 WORKDIR /app/backend
 RUN npm install --omit=dev

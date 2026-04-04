@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { env, smtpConfigured } from "../config/env";
 import type { StoredSubmission } from "../types/training";
+import { createSubmissionPdfDisplayName } from "../utils/pdfFileName";
 
 interface MailAttachment {
   filename: string;
@@ -62,7 +63,7 @@ export async function sendSubmissionEmail(
     ].join("\n"),
     attachments: [
       {
-        filename: `${submission.id}.pdf`,
+        filename: createSubmissionPdfDisplayName(submission),
         path: pdfAbsolutePath,
         contentType: "application/pdf"
       }
@@ -86,7 +87,7 @@ export async function sendSubmissionBatchEmail(input: {
       ...input.submissions.map((submission) => `- ${submission.templateTitle} (${submission.language})`)
     ].join("\n"),
     attachments: input.submissions.map((submission) => ({
-      filename: `${submission.templateTitle.replace(/[^a-zA-Z0-9]+/g, "-")}-${submission.id}.pdf`,
+      filename: createSubmissionPdfDisplayName(submission),
       path: submission.pdfPath,
       contentType: "application/pdf"
     }))

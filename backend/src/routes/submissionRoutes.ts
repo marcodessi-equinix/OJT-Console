@@ -18,6 +18,7 @@ import {
 import { sendSubmissionBatchEmail, sendSubmissionEmail } from "../services/emailService";
 import { generateSubmissionPdf } from "../services/pdfService";
 import type { StoredSubmission } from "../types/training";
+import { createSubmissionPdfDisplayName, createSubmissionPdfStorageName } from "../utils/pdfFileName";
 import { uniqueEmails } from "../utils/text";
 
 const sectionReviewSchema = z.object({
@@ -53,15 +54,6 @@ const sendBatchSchema = z.object({
   additionalCc: z.array(z.email()).optional()
 });
 
-function createPdfFileName(submission: Pick<StoredSubmission, "employeeName" | "templateTitle">): string {
-  const sanitize = (value: string): string => {
-    const normalized = value.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
-    return normalized || "ojt-record";
-  };
-
-  return `${sanitize(submission.employeeName)}-${sanitize(submission.templateTitle)}.pdf`;
-}
-
 export function createSubmissionRouter(): Router {
   const router = Router();
 
@@ -86,7 +78,7 @@ export function createSubmissionRouter(): Router {
         return;
       }
 
-      response.download(submission.pdfPath, createPdfFileName(submission), (error) => {
+      response.download(submission.pdfPath, createSubmissionPdfDisplayName(submission), (error) => {
         if (error && !response.headersSent) {
           next(error);
         }
@@ -149,7 +141,13 @@ export function createSubmissionRouter(): Router {
         parsed.trainerEmail,
         ...(parsed.additionalCc ?? [])
       ]);
-      const pdfPath = join(submissionsRoot, `${submissionId}.pdf`);
+      const pdfPath = join(
+        submissionsRoot,
+        createSubmissionPdfStorageName(
+          { employeeName: parsed.employeeName, templateTitle: template.title },
+          submissionId
+        )
+      );
 
       const submission: StoredSubmission = {
         id: submissionId,
