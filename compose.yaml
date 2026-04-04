@@ -1,0 +1,60 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      FRONTEND_ORIGIN: http://localhost:${FRONTEND_PORT:-8080}
+      ADMIN_IDENTIFIER: ${ADMIN_IDENTIFIER:-admin}
+      ADMIN_NAME: ${ADMIN_NAME:-OJT Admin}
+      ADMIN_PIN: ${ADMIN_PIN:-1234}
+      MAIL_FROM: ${MAIL_FROM:-}
+      DEFAULT_PRIMARY_RECIPIENT: ${DEFAULT_PRIMARY_RECIPIENT:-}
+      DEFAULT_CC_ME: ${DEFAULT_CC_ME:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      ENGLISH_DOCUMENTS_ROOT: /app/source-documents/English
+      GERMAN_DOCUMENTS_ROOT: /app/source-documents/German
+    volumes:
+      - type: bind
+        source: ${BACKEND_DATA_PATH:-./backend/data}
+        target: /app/backend/data
+      - type: bind
+        source: ${ENGLISH_DOCUMENTS_SOURCE:-./English}
+        target: /app/source-documents/English
+        read_only: true
+      - type: bind
+        source: ${GERMAN_DOCUMENTS_SOURCE:-./German}
+        target: /app/source-documents/German
+        read_only: true
+    expose:
+      - "4000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
