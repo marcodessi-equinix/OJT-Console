@@ -7,7 +7,6 @@ COPY frontend/tsconfig.json ./tsconfig.json
 COPY tsconfig.base.json ../tsconfig.base.json
 COPY frontend/vite.config.ts ./vite.config.ts
 COPY frontend/index.html ./index.html
-COPY frontend/env.d.ts ./env.d.ts
 COPY frontend/public ./public
 
 RUN npm install
