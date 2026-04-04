@@ -57,6 +57,7 @@ Der Stack ist so vorbereitet, dass du ihn lokal entwickeln, als GitHub-Repositor
 |- scripts/
 |- docs/assets/
 |- compose.yaml
+|- docker-compose.yml
 |- .env.example
 |- stack.env.example
 |- README.md
@@ -113,7 +114,7 @@ git push -u origin main
 
 ### Empfohlene Variante
 
-Nutze in Portainer einen Stack aus dem Git-Repository oder lade [compose.yaml](compose.yaml) direkt hoch. Fuer die Umgebungsvariablen kannst du [stack.env.example](stack.env.example) als Vorlage nehmen.
+Nutze in Portainer einen Stack aus dem Git-Repository oder lade [compose.yaml](compose.yaml) direkt hoch. Fuer Git-Deployments liegt zusaetzlich [docker-compose.yml](docker-compose.yml) im Repo, damit Portainer auch mit dem Standardpfad direkt deployen kann. Fuer die Umgebungsvariablen kannst du [stack.env.example](stack.env.example) als Vorlage nehmen.
 
 ### Wichtige Voraussetzungen
 
@@ -154,7 +155,7 @@ SMTP_PASS=
 1. Stack anlegen.
 2. `Git repository` oder `Upload` waehlen.
 3. Repository-URL `https://github.com/marcodessi-equinix/OJT-Console.git` eintragen oder [compose.yaml](compose.yaml) hochladen.
-4. Falls Git genutzt wird: Compose-Datei auf `compose.yaml` setzen.
+4. Falls Git genutzt wird: Standardpfad `docker-compose.yml` funktioniert direkt. Alternativ kannst du den Compose-Dateipfad explizit auf `compose.yaml` setzen.
 5. Umgebungsvariablen aus [stack.env.example](stack.env.example) oder manuell pflegen.
 6. Deploy ausfuehren.
 7. Anwendung ueber `http://<server>:<FRONTEND_PORT>` aufrufen.
