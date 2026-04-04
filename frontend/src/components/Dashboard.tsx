@@ -1,16 +1,25 @@
 import { useMemo } from "react";
 import { getIntlLocale, useLanguage } from "../features/language/LanguageProvider";
-import type { EmployeeProfile, SubmissionListItem, TrainingTemplateSummary } from "../types/training";
+import type { EmployeeProfile, EmployeeTeam, SubmissionListItem, TrainingTemplateSummary } from "../types/training";
 import { formatDate as formatAppDate } from "../utils/date";
 import { buildEmployeeProgress } from "../utils/employeeProgress";
+import {
+  countDistinctTemplateModules,
+  getLogicalSubmissionRepresentatives,
+  getModuleKey,
+  getSubmissionTimestamp,
+  normalizeModuleTitle
+} from "../utils/moduleIdentity";
 
 interface Props {
   employees: EmployeeProfile[];
   templates: TrainingTemplateSummary[];
   submissions: SubmissionListItem[];
+  visibleTeams: EmployeeTeam[];
 }
 
 type EmployeeStatus = "not_started" | "blocked" | "ready" | "in_progress" | "complete";
+type DashboardTone = "primary" | "success" | "accent" | "warn";
 
 interface EmployeeDashboardRow {
   employee: EmployeeProfile;
@@ -27,6 +36,18 @@ interface DashboardTeamMeta {
 interface DashboardTeamBreakdownItem extends DashboardTeamMeta {
   count: number;
   share: number;
+}
+
+interface LogicalSubmissionItem {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeTeam: "C-OPS" | "F-OPS";
+  templateTitle: string;
+  sendStatus: SubmissionListItem["sendStatus"];
+  createdAt: string;
+  completedAt?: string;
+  sentAt?: string;
 }
 
 function formatDate(value: string | undefined, locale: string): string {
@@ -63,6 +84,40 @@ function buildTeamBreakdown(
   });
 }
 
+function buildLogicalSubmissions(
+  submissions: SubmissionListItem[],
+  employees: EmployeeProfile[]
+): LogicalSubmissionItem[] {
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+  const grouped = new Map<string, SubmissionListItem[]>();
+
+  for (const submission of submissions) {
+    const key = `${submission.employeeId}::${getModuleKey(submission.templateTitle)}`;
+    const items = grouped.get(key) ?? [];
+    items.push(submission);
+    grouped.set(key, items);
+  }
+
+  return Array.from(grouped.values())
+    .map((items) => {
+      const representative = getLogicalSubmissionRepresentatives(items)[0];
+      const employee = employeeById.get(representative.employeeId);
+
+      return {
+        id: representative.id,
+        employeeId: representative.employeeId,
+        employeeName: representative.employeeName,
+        employeeTeam: employee?.team ?? "C-OPS",
+        templateTitle: normalizeModuleTitle(representative.templateTitle),
+        sendStatus: representative.sendStatus,
+        createdAt: representative.createdAt,
+        completedAt: representative.completedAt,
+        sentAt: representative.sentAt
+      };
+    })
+    .sort((left, right) => getSubmissionTimestamp(right) - getSubmissionTimestamp(left));
+}
+
 function DashboardRing({ value, total, label, ofLabel }: { value: number; total: number; label: string; ofLabel: string }) {
   const safeTotal = Math.max(total, 1);
   const percent = clampPercent((value / safeTotal) * 100);
@@ -85,13 +140,74 @@ function DashboardRing({ value, total, label, ofLabel }: { value: number; total:
   );
 }
 
-export function Dashboard({ employees, templates, submissions }: Props) {
+export function Dashboard({ employees, templates, submissions, visibleTeams }: Props) {
   const { locale, messages } = useLanguage();
   const intlLocale = getIntlLocale(locale);
-  const teamMeta = useMemo<DashboardTeamMeta[]>(() => [
-    { id: "C-OPS", label: messages.dashboard.teamCops, appearance: "cops", meterTone: "primary" },
-    { id: "F-OPS", label: messages.dashboard.teamFops, appearance: "fops", meterTone: "accent" }
-  ], [messages.dashboard.teamCops, messages.dashboard.teamFops]);
+  const dashboardCopy = locale === "de"
+    ? {
+        moduleCountDetail: "logische OJT-Module",
+        draftDetail: "noch nicht abgeschlossen oder versendet",
+        completedDetail: "per PDF oder Entwurf abgeschlossen",
+        sentDetail: "bereits versendet",
+        failedDetail: "mit Versandfehler",
+        draftStatusDetail: "Gespeichert, aber noch nicht abgeschlossen oder versendet",
+        completedStatusDetail: "Abgeschlossen, aber noch nicht versendet",
+        sentStatusDetail: "Bereits als Mail verschickt",
+        failedStatusDetail: "Versand ist fehlgeschlagen",
+        teamScopeActive: "Team-Scope aktiv",
+        singleTeamHeroTitleSuffix: "Command Deck",
+        singleTeamHeroCopy: (teamLabel: string) => `Alle Kennzahlen, Trainings- und Versandsignale fuer ${teamLabel} in einer fokussierten Ansicht ohne leere Vergleichsflaechen.`,
+        progressPanelLabel: "Team Completion",
+        trainerScopeDetail: "Trainer mit aktivem Zugriff auf dieses Team",
+        moduleScopeDetail: "logische OJT-Module im aktuellen Scope",
+        deliveryBacklogLabel: "Delivery-Fokus",
+        deliveryBacklogDetail: "offene Entwuerfe oder fehlgeschlagene Zustellungen",
+        sendReadinessLabel: "Send-Readiness",
+        sendReadinessDetail: "abgeschlossen oder bereits versendet",
+        focusTitle: "Operativer Fokus",
+        focusCopy: "Abschlussquote, aktives Volumen und Backlog fuer das sichtbare Team in einer einzigen Leitwarte.",
+        visibleShareLabel: "des sichtbaren Volumens",
+        teamSignalTitle: "Modulbibliothek & Versandlage",
+        teamSignalCopy: (teamLabel: string) => `Dokumentumfang, Versandvolumen und offene Punkte fuer ${teamLabel} auf einen Blick.`,
+        readyStateLabel: "bereit",
+        scopeModulesLabel: "Module im Scope"
+      }
+    : {
+        moduleCountDetail: "logical OJT modules",
+        draftDetail: "not yet completed or sent",
+        completedDetail: "completed through PDF or draft",
+        sentDetail: "already sent",
+        failedDetail: "with delivery error",
+        draftStatusDetail: "Saved, but not yet completed or sent",
+        completedStatusDetail: "Completed, but not yet sent",
+        sentStatusDetail: "Already delivered by email",
+        failedStatusDetail: "Delivery failed",
+        teamScopeActive: "Team scope active",
+        singleTeamHeroTitleSuffix: "Command Deck",
+        singleTeamHeroCopy: (teamLabel: string) => `All training, delivery, and library signals for ${teamLabel} in one focused view without empty comparison space.`,
+        progressPanelLabel: "Team completion",
+        trainerScopeDetail: "Trainers with active access to this team",
+        moduleScopeDetail: "logical OJT modules in the current scope",
+        deliveryBacklogLabel: "Delivery focus",
+        deliveryBacklogDetail: "open drafts or failed deliveries",
+        sendReadinessLabel: "Send readiness",
+        sendReadinessDetail: "completed or already sent",
+        focusTitle: "Operational focus",
+        focusCopy: "Completion rate, active volume, and backlog for the visible team in a single command deck.",
+        visibleShareLabel: "of visible volume",
+        teamSignalTitle: "Library and delivery pulse",
+        teamSignalCopy: (teamLabel: string) => `Document coverage, delivery throughput, and open items for ${teamLabel} at a glance.`,
+        readyStateLabel: "ready",
+        scopeModulesLabel: "modules in scope"
+      };
+  const teamMeta = useMemo<DashboardTeamMeta[]>(() => {
+    const allTeamMeta: DashboardTeamMeta[] = [
+      { id: "C-OPS", label: messages.dashboard.teamCops, appearance: "cops", meterTone: "primary" },
+      { id: "F-OPS", label: messages.dashboard.teamFops, appearance: "fops", meterTone: "accent" }
+    ];
+
+    return allTeamMeta.filter((team) => visibleTeams.includes(team.id));
+  }, [messages.dashboard.teamCops, messages.dashboard.teamFops, visibleTeams]);
   const employeeOnly = useMemo(() => employees.filter((employee) => employee.role === "employee"), [employees]);
   const trainers = useMemo(() => employees.filter((employee) => employee.role === "trainer"), [employees]);
   const trainerCount = trainers.length;
@@ -102,15 +218,23 @@ export function Dashboard({ employees, templates, submissions }: Props) {
   const completedEmployees = useMemo(() => employeeRows.filter((row) => row.status === "complete").length, [employeeRows]);
   const openEmployees = useMemo(() => employeeRows.filter((row) => row.status === "ready" || row.status === "in_progress" || row.status === "blocked").length, [employeeRows]);
   const notStartedEmployees = useMemo(() => employeeRows.filter((row) => row.status === "not_started").length, [employeeRows]);
-  const openDrafts = useMemo(() => submissions.filter((submission) => submission.sendStatus === "draft").length, [submissions]);
-  const recentSubmissions = useMemo(() => submissions.slice(0, 5), [submissions]);
+  const logicalSubmissions = useMemo(() => buildLogicalSubmissions(submissions, employees), [employees, submissions]);
+  const draftModules = useMemo(() => logicalSubmissions.filter((item) => item.sendStatus === "draft"), [logicalSubmissions]);
+  const completedModules = useMemo(() => logicalSubmissions.filter((item) => item.sendStatus === "completed"), [logicalSubmissions]);
+  const sentModules = useMemo(() => logicalSubmissions.filter((item) => item.sendStatus === "sent"), [logicalSubmissions]);
+  const failedModules = useMemo(() => logicalSubmissions.filter((item) => item.sendStatus === "send_failed"), [logicalSubmissions]);
+  const recentSubmissions = useMemo(() => logicalSubmissions.slice(0, 5), [logicalSubmissions]);
   const employeeCountByTeam = useMemo(() => countItemsByTeam(employeeOnly), [employeeOnly]);
   const trainerCountByTeam = useMemo(() => countItemsByTeam(trainers), [trainers]);
   const completedByTeam = useMemo(() => countItemsByTeam(employeeRows.filter((row) => row.status === "complete").map((row) => row.employee)), [employeeRows]);
   const openByTeam = useMemo(() => countItemsByTeam(employeeRows.filter((row) => row.status === "ready" || row.status === "in_progress" || row.status === "blocked").map((row) => row.employee)), [employeeRows]);
   const notStartedByTeam = useMemo(() => countItemsByTeam(employeeRows.filter((row) => row.status === "not_started").map((row) => row.employee)), [employeeRows]);
-  const cOpsDocumentCount = useMemo(() => templates.filter((template) => template.team === "C-OPS").length, [templates]);
-  const fOpsDocumentCount = useMemo(() => templates.filter((template) => template.team === "F-OPS").length, [templates]);
+  const draftModulesByTeam = useMemo(() => countItemsByTeam(draftModules.map((item) => ({ team: item.employeeTeam }))), [draftModules]);
+  const completedModulesByTeam = useMemo(() => countItemsByTeam(completedModules.map((item) => ({ team: item.employeeTeam }))), [completedModules]);
+  const sentModulesByTeam = useMemo(() => countItemsByTeam(sentModules.map((item) => ({ team: item.employeeTeam }))), [sentModules]);
+  const failedModulesByTeam = useMemo(() => countItemsByTeam(failedModules.map((item) => ({ team: item.employeeTeam }))), [failedModules]);
+  const cOpsDocumentCount = useMemo(() => countDistinctTemplateModules(templates.filter((template) => template.team === "C-OPS")), [templates]);
+  const fOpsDocumentCount = useMemo(() => countDistinctTemplateModules(templates.filter((template) => template.team === "F-OPS")), [templates]);
   const teamBreakdown = useMemo(() => buildTeamBreakdown(teamMeta, {
     "C-OPS": cOpsDocumentCount,
     "F-OPS": fOpsDocumentCount
@@ -131,62 +255,338 @@ export function Dashboard({ employees, templates, submissions }: Props) {
       percent
     };
   }), [completedByTeam, employeeCountByTeam, notStartedByTeam, openByTeam, teamMeta]);
-  const statusBreakdown = useMemo(() => [
+  const statusBreakdown = useMemo(() => ([
     {
-      id: "complete",
-      label: messages.common.trainingStatus.complete,
-      count: completedEmployees,
-      tone: "success",
-      detail: messages.dashboard.completeDetail,
-      breakdown: buildTeamBreakdown(teamMeta, completedByTeam, completedEmployees)
+      id: "draft",
+      label: messages.common.submissionStatus.draft,
+      count: draftModules.length,
+      tone: "warn" as DashboardTone,
+      detail: dashboardCopy.draftStatusDetail,
+      breakdown: buildTeamBreakdown(teamMeta, draftModulesByTeam, draftModules.length)
     },
     {
-      id: "active",
-      label: messages.dashboard.activeTrainings,
-      count: openEmployees,
-      tone: "primary",
-      detail: messages.dashboard.activeDetail,
-      breakdown: buildTeamBreakdown(teamMeta, openByTeam, openEmployees)
+      id: "completed",
+      label: messages.common.submissionStatus.completed,
+      count: completedModules.length,
+      tone: "primary" as DashboardTone,
+      detail: dashboardCopy.completedStatusDetail,
+      breakdown: buildTeamBreakdown(teamMeta, completedModulesByTeam, completedModules.length)
     },
     {
-      id: "not_started",
-      label: messages.common.trainingStatus.notStarted,
-      count: notStartedEmployees,
-      tone: "warn",
-      detail: messages.dashboard.notStartedDetail,
-      breakdown: buildTeamBreakdown(teamMeta, notStartedByTeam, notStartedEmployees)
+      id: "sent",
+      label: messages.common.submissionStatus.sent,
+      count: sentModules.length,
+      tone: "success" as DashboardTone,
+      detail: dashboardCopy.sentStatusDetail,
+      breakdown: buildTeamBreakdown(teamMeta, sentModulesByTeam, sentModules.length)
+    },
+    {
+      id: "failed",
+      label: messages.common.submissionStatus.failed,
+      count: failedModules.length,
+      tone: "warn" as DashboardTone,
+      detail: dashboardCopy.failedStatusDetail,
+      breakdown: buildTeamBreakdown(teamMeta, failedModulesByTeam, failedModules.length)
     }
-  ], [completedByTeam, completedEmployees, messages.common.trainingStatus.complete, messages.common.trainingStatus.notStarted, messages.dashboard.activeDetail, messages.dashboard.activeTrainings, messages.dashboard.completeDetail, messages.dashboard.notStartedDetail, notStartedByTeam, notStartedEmployees, openByTeam, openEmployees, teamMeta]);
+  ]), [completedModules.length, completedModulesByTeam, dashboardCopy.completedStatusDetail, dashboardCopy.draftStatusDetail, dashboardCopy.failedStatusDetail, dashboardCopy.sentStatusDetail, draftModules.length, draftModulesByTeam, failedModules.length, failedModulesByTeam, messages.common.submissionStatus.completed, messages.common.submissionStatus.draft, messages.common.submissionStatus.failed, messages.common.submissionStatus.sent, sentModules.length, sentModulesByTeam, teamMeta]);
   const metricCards = useMemo(() => [
     {
       label: messages.dashboard.metrics.employees,
       value: employeeOnly.length,
-      detail: `${completedEmployees} ${messages.common.trainingStatus.complete}`,
-      tone: "primary",
+      detail: `${logicalSubmissions.length} ${dashboardCopy.moduleCountDetail}`,
+      tone: "primary" as DashboardTone,
       breakdown: buildTeamBreakdown(teamMeta, employeeCountByTeam, employeeOnly.length)
     },
     {
       label: messages.dashboard.metrics.trainers,
       value: trainerCount,
       detail: messages.dashboard.totalOverall,
-      tone: "success",
+      tone: "success" as DashboardTone,
       breakdown: buildTeamBreakdown(teamMeta, trainerCountByTeam, trainerCount)
     },
     {
-      label: messages.dashboard.metrics.completed,
-      value: completedEmployees,
-      detail: `${openDrafts} ${messages.dashboard.metrics.forDelivery}`,
-      tone: "accent",
-      breakdown: buildTeamBreakdown(teamMeta, completedByTeam, completedEmployees)
+      label: messages.common.submissionStatus.draft,
+      value: draftModules.length,
+      detail: dashboardCopy.draftDetail,
+      tone: "warn" as DashboardTone,
+      breakdown: buildTeamBreakdown(teamMeta, draftModulesByTeam, draftModules.length)
     },
     {
-      label: messages.dashboard.metrics.openPdfs,
-      value: openDrafts,
-      detail: `${openEmployees} ${messages.dashboard.activeTrainings}`,
-      tone: "warn",
-      breakdown: buildTeamBreakdown(teamMeta, openByTeam, openEmployees)
+      label: messages.common.submissionStatus.completed,
+      value: completedModules.length,
+      detail: `${sentModules.length} ${messages.common.submissionStatus.sent}`,
+      tone: "accent" as DashboardTone,
+      breakdown: buildTeamBreakdown(teamMeta, completedModulesByTeam, completedModules.length)
     }
-  ], [completedByTeam, completedEmployees, employeeCountByTeam, employeeOnly.length, messages.common.trainingStatus.complete, messages.dashboard.activeTrainings, messages.dashboard.metrics.completed, messages.dashboard.metrics.employees, messages.dashboard.metrics.forDelivery, messages.dashboard.metrics.openPdfs, messages.dashboard.metrics.trainers, messages.dashboard.totalOverall, openByTeam, openDrafts, openEmployees, teamMeta, trainerCount, trainerCountByTeam]);
+  ], [completedModules.length, completedModulesByTeam, dashboardCopy.draftDetail, dashboardCopy.moduleCountDetail, draftModules.length, draftModulesByTeam, employeeCountByTeam, employeeOnly.length, logicalSubmissions.length, messages.common.submissionStatus.completed, messages.common.submissionStatus.draft, messages.common.submissionStatus.sent, messages.dashboard.metrics.employees, messages.dashboard.metrics.trainers, messages.dashboard.totalOverall, sentModules.length, teamMeta, trainerCount, trainerCountByTeam]);
+
+  const isSingleTeamDashboard = teamMeta.length === 1;
+  const focusTeamMeta = isSingleTeamDashboard ? teamMeta[0] : null;
+  const focusProgress = isSingleTeamDashboard ? progressByTeam[0] : null;
+  const focusTeamDocuments = isSingleTeamDashboard ? teamBreakdown[0] : null;
+  const deliveryBacklogCount = draftModules.length + failedModules.length;
+  const readyModulesCount = completedModules.length + sentModules.length;
+  const sendReadinessPercent = clampPercent(logicalSubmissions.length > 0 ? (readyModulesCount / logicalSubmissions.length) * 100 : 0);
+  const signalSegmentsActive = Math.max(1, Math.round(sendReadinessPercent / 17));
+  const signalTone: DashboardTone = deliveryBacklogCount > readyModulesCount
+    ? "warn"
+    : focusTeamMeta?.meterTone === "accent"
+      ? "accent"
+      : readyModulesCount > 0
+        ? "success"
+        : "primary";
+  const recentActivityPanel = (
+    <article className="card">
+      <div className="card-header">
+        <div className="card-header-left">
+          <span className="eyebrow">{messages.dashboard.recentEyebrow}</span>
+          <h3>{messages.dashboard.recentTitle}</h3>
+        </div>
+      </div>
+      <div className="card-body compact dashboard-activity-list">
+        {recentSubmissions.length === 0 ? (
+          <div className="empty-state">{messages.dashboard.noActivity}</div>
+        ) : (
+          recentSubmissions.map((submission) => (
+            <div key={submission.employeeId + submission.templateTitle} className="dashboard-activity-item">
+              <div>
+                <strong>{submission.employeeName}</strong>
+                <p>{submission.templateTitle}</p>
+              </div>
+              <div className="dashboard-activity-item-meta">
+                <span className={`badge badge-${submission.sendStatus === "send_failed" ? "error" : submission.sendStatus === "sent" || submission.sendStatus === "completed" ? "success" : "warn"}`}>
+                  {submission.sendStatus === "send_failed"
+                    ? messages.common.submissionStatus.failed
+                    : submission.sendStatus === "sent"
+                      ? messages.common.submissionStatus.sent
+                      : submission.sendStatus === "completed"
+                        ? messages.common.submissionStatus.completed
+                        : messages.common.submissionStatus.draft}
+                </span>
+                <small>{formatDate(submission.sentAt ?? submission.completedAt ?? submission.createdAt, intlLocale)}</small>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </article>
+  );
+
+  if (focusTeamMeta && focusProgress && focusTeamDocuments) {
+    const singleTeamMetricCards = [
+      {
+        label: messages.dashboard.metrics.employees,
+        value: employeeOnly.length,
+        detail: `${completedEmployees} ${messages.common.trainingStatus.complete} • ${openEmployees} ${messages.dashboard.activeTrainings}`,
+        tone: "primary" as DashboardTone
+      },
+      {
+        label: messages.dashboard.metrics.trainers,
+        value: trainerCount,
+        detail: dashboardCopy.trainerScopeDetail,
+        tone: "success" as DashboardTone
+      },
+      {
+        label: messages.dashboard.metrics.templates,
+        value: focusTeamDocuments.count,
+        detail: dashboardCopy.moduleScopeDetail,
+        tone: focusTeamMeta.meterTone,
+      },
+      {
+        label: dashboardCopy.deliveryBacklogLabel,
+        value: deliveryBacklogCount,
+        detail: dashboardCopy.deliveryBacklogDetail,
+        tone: "warn" as DashboardTone
+      }
+    ];
+    const singleTeamStatusCards = statusBreakdown.map((item) => ({
+      ...item,
+      shareOfVisible: clampPercent(logicalSubmissions.length > 0 ? (item.count / logicalSubmissions.length) * 100 : 0)
+    }));
+
+    return (
+      <div className={`dashboard-shell dashboard-shell-single dashboard-shell-${focusTeamMeta.appearance}`}>
+        <section className={`dashboard-hero dashboard-hero-single dashboard-hero-${focusTeamMeta.appearance} card`}>
+          <div className="card-body compact dashboard-hero-body dashboard-hero-body-single">
+            <div className="dashboard-hero-main">
+              <span className="eyebrow">{messages.dashboard.heroEyebrow}</span>
+              <div className="dashboard-team-badge-row">
+                <span className={`dashboard-team-badge dashboard-team-badge-${focusTeamMeta.appearance}`}>{focusTeamMeta.label}</span>
+                <span className="dashboard-hero-kicker">{dashboardCopy.teamScopeActive}</span>
+              </div>
+              <h2 className="dashboard-hero-title dashboard-hero-title-single">{`${focusTeamMeta.label} ${dashboardCopy.singleTeamHeroTitleSuffix}`}</h2>
+              <p className="dashboard-hero-copy">{dashboardCopy.singleTeamHeroCopy(focusTeamMeta.label)}</p>
+              <div className="dashboard-inline-stats dashboard-inline-stats-hero">
+                <div>
+                  <strong>{employeeOnly.length}</strong>
+                  <span>{messages.dashboard.metrics.employees}</span>
+                </div>
+                <div>
+                  <strong>{focusTeamDocuments.count}</strong>
+                  <span>{dashboardCopy.scopeModulesLabel}</span>
+                </div>
+                <div>
+                  <strong>{sendReadinessPercent}%</strong>
+                  <span>{dashboardCopy.sendReadinessLabel}</span>
+                </div>
+              </div>
+            </div>
+
+            <aside className={`dashboard-hero-spotlight dashboard-hero-spotlight-${focusTeamMeta.appearance}`}>
+              <span className="dashboard-hero-spotlight-label">{dashboardCopy.progressPanelLabel}</span>
+              <DashboardRing
+                value={focusProgress.completed}
+                total={focusProgress.total}
+                label={messages.dashboard.completionLabel}
+                ofLabel={messages.dashboard.ofTotal}
+              />
+              <div className="dashboard-hero-spotlight-grid">
+                <div>
+                  <strong>{focusProgress.completed}</strong>
+                  <span>{messages.common.trainingStatus.complete}</span>
+                </div>
+                <div>
+                  <strong>{focusProgress.active}</strong>
+                  <span>{messages.dashboard.activeTrainings}</span>
+                </div>
+                <div>
+                  <strong>{focusProgress.pending}</strong>
+                  <span>{messages.common.trainingStatus.notStarted}</span>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section className="dashboard-metric-grid dashboard-metric-grid-single">
+          {singleTeamMetricCards.map((metric) => (
+            <article key={metric.label} className={`dashboard-metric-card dashboard-metric-card-${metric.tone} dashboard-metric-card-solo card`}>
+              <div className="card-body compact dashboard-metric-card-body">
+                <div className="dashboard-metric-topline">
+                  <span className="dashboard-metric-label">{metric.label}</span>
+                  <span className={`dashboard-metric-dot dashboard-metric-dot-${metric.tone}`} />
+                </div>
+                <strong className="dashboard-metric-value">{metric.value}</strong>
+                <p className="dashboard-metric-detail">{metric.detail}</p>
+                <div className={`dashboard-metric-solo-badge dashboard-metric-solo-badge-${focusTeamMeta.appearance}`}>{focusTeamMeta.label}</div>
+              </div>
+            </article>
+          ))}
+        </section>
+
+        <section className="dashboard-grid dashboard-grid-single-focus">
+          <article className="card dashboard-focus-card">
+            <div className="card-header">
+              <div className="card-header-left">
+                <span className="eyebrow">{messages.dashboard.progressEyebrow}</span>
+                <h3>{dashboardCopy.focusTitle}</h3>
+              </div>
+            </div>
+            <div className="card-body compact dashboard-focus-panel">
+              <div className="dashboard-focus-copy">
+                <p className="dashboard-focus-copy-text">{dashboardCopy.focusCopy}</p>
+                <div className="dashboard-focus-meter-stack">
+                  <div className="dashboard-focus-meter-row">
+                    <span>{messages.dashboard.completionLabel}</span>
+                    <strong>{focusProgress.percent}%</strong>
+                  </div>
+                  <progress className={`dashboard-meter dashboard-meter-${focusTeamMeta.meterTone}`} max={100} value={focusProgress.percent} aria-hidden="true" />
+                </div>
+                <div className="dashboard-focus-meter-stack">
+                  <div className="dashboard-focus-meter-row">
+                    <span>{dashboardCopy.sendReadinessLabel}</span>
+                    <strong>{sendReadinessPercent}%</strong>
+                  </div>
+                  <progress className={`dashboard-meter dashboard-meter-${signalTone === "accent" ? "accent" : signalTone}`} max={100} value={sendReadinessPercent} aria-hidden="true" />
+                </div>
+              </div>
+              <div className="dashboard-focus-stat-grid">
+                <div className="dashboard-focus-stat">
+                  <strong>{readyModulesCount}</strong>
+                  <span>{dashboardCopy.readyStateLabel}</span>
+                </div>
+                <div className="dashboard-focus-stat">
+                  <strong>{deliveryBacklogCount}</strong>
+                  <span>{dashboardCopy.deliveryBacklogLabel}</span>
+                </div>
+                <div className="dashboard-focus-stat">
+                  <strong>{logicalSubmissions.length}</strong>
+                  <span>{dashboardCopy.moduleCountDetail}</span>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article className="card">
+            <div className="card-header">
+              <div className="card-header-left">
+                <span className="eyebrow">{messages.dashboard.statusEyebrow}</span>
+                <h3>{messages.dashboard.statusTitle}</h3>
+              </div>
+            </div>
+            <div className="card-body compact dashboard-status-spotlight-grid">
+              {singleTeamStatusCards.map((item) => (
+                <div key={item.id} className={`dashboard-status-spotlight-card dashboard-status-spotlight-card-${item.tone}`}>
+                  <div className="dashboard-status-spotlight-head">
+                    <span>{item.label}</span>
+                    <strong>{item.count}</strong>
+                  </div>
+                  <p>{item.detail}</p>
+                  <progress className={`dashboard-meter dashboard-meter-${item.tone === "accent" ? "accent" : item.tone}`} max={100} value={item.shareOfVisible} aria-hidden="true" />
+                  <small>{item.shareOfVisible}% {dashboardCopy.visibleShareLabel}</small>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="dashboard-grid dashboard-grid-single-tail">
+          {recentActivityPanel}
+
+          <article className="card dashboard-team-command-card">
+            <div className="card-header">
+              <div className="card-header-left">
+                <span className="eyebrow">{messages.dashboard.teamEyebrow}</span>
+                <h3>{dashboardCopy.teamSignalTitle}</h3>
+              </div>
+            </div>
+            <div className="card-body compact dashboard-team-command">
+              <div className="dashboard-team-command-head">
+                <div>
+                  <span className={`dashboard-team-badge dashboard-team-badge-${focusTeamMeta.appearance}`}>{focusTeamMeta.label}</span>
+                  <p className="dashboard-team-command-copy">{dashboardCopy.teamSignalCopy(focusTeamMeta.label)}</p>
+                </div>
+                <strong className="dashboard-team-command-total">{focusTeamDocuments.count}</strong>
+              </div>
+              <div className="dashboard-signal-rail">
+                {Array.from({ length: 6 }, (_, index) => (
+                  <span
+                    key={`${focusTeamMeta.id}-signal-${index}`}
+                    className={`dashboard-signal-segment dashboard-signal-segment-${signalTone} ${index < signalSegmentsActive ? "active" : ""}`}
+                  />
+                ))}
+              </div>
+              <div className="dashboard-team-command-grid">
+                <div className="dashboard-team-command-stat">
+                  <span>{messages.dashboard.metrics.templates}</span>
+                  <strong>{focusTeamDocuments.count}</strong>
+                </div>
+                <div className="dashboard-team-command-stat">
+                  <span>{dashboardCopy.readyStateLabel}</span>
+                  <strong>{readyModulesCount}</strong>
+                </div>
+                <div className="dashboard-team-command-stat">
+                  <span>{dashboardCopy.deliveryBacklogLabel}</span>
+                  <strong>{deliveryBacklogCount}</strong>
+                </div>
+              </div>
+              <p className="dashboard-team-command-detail">{dashboardCopy.sendReadinessDetail}</p>
+            </div>
+          </article>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="dashboard-shell">
@@ -274,20 +674,22 @@ export function Dashboard({ employees, templates, submissions }: Props) {
               <div className="empty-state">{messages.dashboard.noActivity}</div>
             ) : (
               recentSubmissions.map((submission) => (
-                <div key={submission.id} className="dashboard-activity-item">
+                <div key={submission.employeeId + submission.templateTitle} className="dashboard-activity-item">
                   <div>
                     <strong>{submission.employeeName}</strong>
                     <p>{submission.templateTitle}</p>
                   </div>
                   <div className="dashboard-activity-item-meta">
-                    <span className={`badge badge-${submission.sendStatus === "send_failed" ? "error" : submission.sendStatus === "sent" ? "success" : "warn"}`}>
+                    <span className={`badge badge-${submission.sendStatus === "send_failed" ? "error" : submission.sendStatus === "sent" || submission.sendStatus === "completed" ? "success" : "warn"}`}>
                       {submission.sendStatus === "send_failed"
                         ? messages.common.submissionStatus.failed
                         : submission.sendStatus === "sent"
                           ? messages.common.submissionStatus.sent
-                          : messages.common.submissionStatus.draft}
+                          : submission.sendStatus === "completed"
+                            ? messages.common.submissionStatus.completed
+                            : messages.common.submissionStatus.draft}
                     </span>
-                    <small>{formatDate(submission.sentAt ?? submission.createdAt, intlLocale)}</small>
+                    <small>{formatDate(submission.sentAt ?? submission.completedAt ?? submission.createdAt, intlLocale)}</small>
                   </div>
                 </div>
               ))

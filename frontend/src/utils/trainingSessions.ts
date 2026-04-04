@@ -1,4 +1,5 @@
 import type { TrainingSessionListItem } from "../types/training";
+import { getModuleKey } from "./moduleIdentity";
 
 export type EmployeeTrainingStatus = "not_started" | "blocked" | "ready" | "in_progress" | "complete";
 
@@ -60,8 +61,8 @@ export function getMostRelevantSession(employeeId: string, sessions: TrainingSes
 
 export function buildTrainingSummary(employeeId: string, sessions: TrainingSessionListItem[], templateCount: number): EmployeeTrainingSummary {
   const employeeSessions = getEmployeeSessions(employeeId, sessions);
-  const startedTemplates = distinctCount(employeeSessions.map((session) => session.templateId));
-  const finishedTemplates = distinctCount(employeeSessions.filter(isSessionDelivered).map((session) => session.templateId));
+  const startedTemplates = distinctCount(employeeSessions.map((session) => getModuleKey(session.templateTitle)));
+  const finishedTemplates = distinctCount(employeeSessions.filter(isSessionDelivered).map((session) => getModuleKey(session.templateTitle)));
   const openTemplates = Math.max(templateCount - finishedTemplates, 0);
 
   let status: EmployeeTrainingStatus = "not_started";

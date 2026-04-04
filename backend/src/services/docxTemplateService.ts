@@ -64,6 +64,7 @@ function cleanupTitle(fileName: string): string {
   return basename(fileName, extname(fileName))
     .replace(/\s+-\s+On the Job Training Guide.*$/i, "")
     .replace(/\s+\(\d+\)$/i, "")
+    .replace(/\s*(?:[-_–—]\s*|\(\s*|\[\s*)?(english|german|englisch|deutsch)(?:\s*[)\]])?\s*$/i, "")
     .trim();
 }
 

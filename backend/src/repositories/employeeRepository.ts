@@ -101,6 +101,7 @@ function mapTrainer(row: EmployeeRow): TrainerSession {
     lastName: normalized.lastName,
     name: normalized.name,
     email: row.email,
+    team: normalizeEmployeeTeam(row.team),
     createdAt: row.created_at,
     hasPin: Boolean(row.trainer_pin_hash),
     mustChangePin: row.trainer_pin_hash === DEFAULT_TRAINER_PIN_HASH,

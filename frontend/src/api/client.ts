@@ -3,6 +3,8 @@ import type {
   AppSettings,
   BatchSendResponse,
   EmployeeProfile,
+  ExportedPdfResponse,
+  MailDraftResponse,
   SubmissionListItem,
   SubmissionPayload,
   SubmissionResponse,
@@ -20,6 +22,8 @@ function normalizeSettings(settings: Partial<AppSettings> | null | undefined): A
     defaultPrimaryRecipient: settings?.defaultPrimaryRecipient ?? "",
     defaultCcMe: settings?.defaultCcMe ?? "",
     deliveryRecipients: Array.isArray(settings?.deliveryRecipients) ? settings.deliveryRecipients : [],
+    deliveryEmailSubjectTemplate: settings?.deliveryEmailSubjectTemplate ?? "",
+    deliveryEmailBodyTemplate: settings?.deliveryEmailBodyTemplate ?? "",
     smtpConfigured: Boolean(settings?.smtpConfigured)
   };
 }
@@ -63,7 +67,11 @@ export function fetchSettings(): Promise<AppSettings> {
   return request<Partial<AppSettings>>("/settings").then(normalizeSettings);
 }
 
-export function updateSettings(payload: { deliveryRecipients: string[] }): Promise<AppSettings> {
+export function updateSettings(payload: {
+  deliveryRecipients: string[];
+  deliveryEmailSubjectTemplate: string;
+  deliveryEmailBodyTemplate: string;
+}): Promise<AppSettings> {
   return request<Partial<AppSettings>>("/settings", {
     method: "PATCH",
     body: JSON.stringify(payload)
@@ -235,7 +243,8 @@ export function submitTraining(payload: SubmissionPayload): Promise<SubmissionRe
 
 export function sendSubmissionBatch(payload: {
   employeeId: string;
-  primaryRecipient: string;
+  submissionIds?: string[];
+  primaryRecipient?: string;
   additionalCc?: string[];
 }): Promise<BatchSendResponse> {
   return request<BatchSendResponse>("/submissions/send-batch", {
@@ -264,4 +273,70 @@ export async function fetchSubmissionPdf(submissionId: string): Promise<{ blob: 
     blob: await response.blob(),
     fileName
   };
+}
+
+export async function fetchSubmissionBundlePdf(payload: {
+  employeeId: string;
+  submissionIds?: string[];
+}): Promise<{ blob: Blob; fileName: string }> {
+  const response = await fetch(`${apiBaseUrl}/submissions/bundle-pdf`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response);
+  }
+
+  const contentDisposition = response.headers.get("Content-Disposition") ?? "";
+  const fileNameMatch = contentDisposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+  const fileName = fileNameMatch?.[1] ? decodeURIComponent(fileNameMatch[1].replace(/\"/g, "")) : `${payload.employeeId}-ojt-bundle.pdf`;
+
+  return {
+    blob: await response.blob(),
+    fileName
+  };
+}
+
+export function fetchSubmissionMailDraft(payload: {
+  employeeId: string;
+  submissionIds?: string[];
+  primaryRecipient?: string;
+  additionalCc?: string[];
+}): Promise<MailDraftResponse> {
+  return request<MailDraftResponse>("/submissions/mail-draft", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function exportSubmissionPdf(submissionId: string): Promise<ExportedPdfResponse> {
+  return request<ExportedPdfResponse>(`/submissions/${encodeURIComponent(submissionId)}/export`, {
+    method: "POST"
+  });
+}
+
+export function exportSubmissionBundle(payload: {
+  employeeId: string;
+  submissionIds?: string[];
+}): Promise<ExportedPdfResponse> {
+  return request<ExportedPdfResponse>("/submissions/bundle-export", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function openSubmissionOutlookDraft(payload: {
+  employeeId: string;
+  submissionIds?: string[];
+  primaryRecipient?: string;
+  additionalCc?: string[];
+}): Promise<ExportedPdfResponse> {
+  return request<ExportedPdfResponse>("/submissions/outlook-draft", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }

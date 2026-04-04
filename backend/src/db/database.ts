@@ -90,6 +90,7 @@ export class AppDatabase {
         email_delivered INTEGER NOT NULL,
         email_message TEXT NOT NULL,
         send_status TEXT NOT NULL DEFAULT 'draft',
+        completed_at TEXT,
         sent_at TEXT,
         created_at TEXT NOT NULL
       );
@@ -130,6 +131,7 @@ export class AppDatabase {
     this.ensureColumn("submissions", "employee_signature_data_url", "TEXT");
     this.ensureColumn("submissions", "trainer_signature_data_url", "TEXT");
     this.ensureColumn("submissions", "send_status", "TEXT NOT NULL DEFAULT 'draft'");
+    this.ensureColumn("submissions", "completed_at", "TEXT");
     this.ensureColumn("submissions", "sent_at", "TEXT");
     this.ensureColumn("employees", "role", "TEXT NOT NULL DEFAULT 'employee'");
     this.ensureColumn("employees", "team", "TEXT NOT NULL DEFAULT 'C-OPS'");

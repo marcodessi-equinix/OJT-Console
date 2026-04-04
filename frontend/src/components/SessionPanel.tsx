@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLanguage } from "../features/language/LanguageProvider";
-import type { AdminSession, AppSettings, TrainerSession } from "../types/training";
+import type { AdminSession, TrainerSession } from "../types/training";
 import { SignaturePad } from "./SignaturePad";
 import { UiSelect } from "./UiSelect";
 
 type LoginRole = "admin" | "trainer";
-type PanelMode = "login" | "profile" | "admin-settings";
+type PanelMode = "login" | "profile";
 
 interface TrainerLoginOption {
   id: string;
@@ -26,16 +26,11 @@ interface Props {
   trainerAuthError: string | null;
   trainerProfileBusy: boolean;
   trainerProfileMessage: string | null;
-  settings: AppSettings;
-  adminSettingsBusy: boolean;
-  adminSettingsError: string | null;
-  adminSettingsMessage: string | null;
   onAdminLogin: (payload: { pin: string }) => Promise<void>;
   onTrainerLogin: (payload: { identifier: string; pin: string }) => Promise<void>;
   onAdminLogout: () => void;
   onTrainerLogout: () => void;
   onTrainerProfileSave: (payload: { pin?: string; signatureDataUrl?: string }) => Promise<void>;
-  onAdminSettingsSave: (payload: { deliveryRecipients: string[] }) => Promise<void>;
 }
 
 const pinPattern = /^\d{4}(\d{2})?$/;
@@ -50,16 +45,11 @@ export function SessionPanel({
   trainerAuthError,
   trainerProfileBusy,
   trainerProfileMessage,
-  settings,
-  adminSettingsBusy,
-  adminSettingsError,
-  adminSettingsMessage,
   onAdminLogin,
   onTrainerLogin,
   onAdminLogout,
   onTrainerLogout,
-  onTrainerProfileSave,
-  onAdminSettingsSave
+  onTrainerProfileSave
 }: Props) {
   const { messages } = useLanguage();
   const shellRef = useRef<HTMLDivElement>(null);
@@ -69,13 +59,7 @@ export function SessionPanel({
   const [pin, setPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [signatureValue, setSignatureValue] = useState("");
-  const [recipientDraft, setRecipientDraft] = useState("");
-  const [deliveryRecipients, setDeliveryRecipients] = useState<string[]>(settings.deliveryRecipients ?? []);
   const forcePinReset = Boolean(trainer?.mustChangePin);
-
-  useEffect(() => {
-    setDeliveryRecipients(settings.deliveryRecipients ?? []);
-  }, [settings.deliveryRecipients]);
 
   useEffect(() => {
     setSignatureValue(trainer?.signatureDataUrl ?? "");
@@ -193,24 +177,6 @@ export function SessionPanel({
     }
   }
 
-  function handleAddRecipient(): void {
-    const nextRecipient = recipientDraft.trim().toLowerCase();
-    if (!nextRecipient || deliveryRecipients.includes(nextRecipient)) {
-      return;
-    }
-
-    setDeliveryRecipients((current) => [...current, nextRecipient]);
-    setRecipientDraft("");
-  }
-
-  function handleRemoveRecipient(recipient: string): void {
-    setDeliveryRecipients((current) => current.filter((item) => item !== recipient));
-  }
-
-  async function handleAdminSettingsSave(): Promise<void> {
-    await onAdminSettingsSave({ deliveryRecipients });
-  }
-
   return (
     <div className="trainer-session-shell" ref={shellRef}>
       {!hasActiveSession && (
@@ -248,16 +214,6 @@ export function SessionPanel({
               </div>
             )}
           </div>
-
-          {admin && (
-            <button
-              className="btn btn-sm"
-              type="button"
-              onClick={() => setPanelMode("admin-settings")}
-            >
-              {messages.admin.recipientButton}
-            </button>
-          )}
 
           <button
             className="btn btn-sm"
@@ -441,61 +397,6 @@ export function SessionPanel({
         document.body
       )}
 
-      {panelMode === "admin-settings" && admin && createPortal(
-        <div className="session-profile-overlay" onMouseDown={() => setPanelMode(null)}>
-          <section className="session-card session-profile-modal" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="session-profile-head">
-              <div>
-                <span className="eyebrow">{messages.shell.topbarAdmin}</span>
-                <h3>{messages.admin.recipientsTitle}</h3>
-                <p className="text-sm text-sec">{messages.admin.recipientsHelp}</p>
-              </div>
-
-              <button className="btn btn-sm" type="button" onClick={() => setPanelMode(null)}>
-                {messages.common.actions.close}
-              </button>
-            </div>
-
-            <div className="stack-md">
-              <div className="form-group">
-                <label className="form-label" htmlFor="admin-recipient-input">{messages.admin.recipientsLabel}</label>
-                <div className="session-recipient-input-row">
-                  <input
-                    id="admin-recipient-input"
-                    className="form-input"
-                    type="email"
-                    value={recipientDraft}
-                    onChange={(event) => setRecipientDraft(event.target.value)}
-                    placeholder={messages.admin.recipientsPlaceholder}
-                  />
-                  <button className="btn" type="button" onClick={handleAddRecipient} disabled={!recipientDraft.trim()}>
-                    {messages.admin.recipientsAdd}
-                  </button>
-                </div>
-              </div>
-
-              <div className="session-recipient-list">
-                {deliveryRecipients.length ? deliveryRecipients.map((recipient) => (
-                  <div key={recipient} className="session-recipient-item">
-                    <span>{recipient}</span>
-                    <button className="btn btn-sm" type="button" onClick={() => handleRemoveRecipient(recipient)}>
-                      {messages.common.actions.delete}
-                    </button>
-                  </div>
-                )) : <p className="text-sm text-sec">{messages.admin.recipientsEmpty}</p>}
-              </div>
-
-              {adminSettingsError && <p className="text-error text-sm">{adminSettingsError}</p>}
-              {adminSettingsMessage && <p className="text-sm trainer-session-success">{adminSettingsMessage}</p>}
-
-              <button className="btn btn-primary" type="button" onClick={() => void handleAdminSettingsSave()} disabled={adminSettingsBusy || deliveryRecipients.length === 0}>
-                {adminSettingsBusy ? messages.common.actions.saving : messages.admin.recipientsSave}
-              </button>
-            </div>
-          </section>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

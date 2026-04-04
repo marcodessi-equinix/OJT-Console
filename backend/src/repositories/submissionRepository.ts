@@ -26,6 +26,7 @@ interface SubmissionRow {
   email_delivered: number;
   email_message: string;
   send_status: SubmissionSendStatus;
+  completed_at: string | null;
   sent_at: string | null;
   created_at: string;
 }
@@ -71,6 +72,7 @@ function mapSubmission(row: SubmissionRow): StoredSubmission {
     sectionReviews,
     pdfPath: row.pdf_path,
     createdAt: row.created_at,
+    completedAt: row.completed_at ?? undefined,
     ccRecipients,
     emailDelivered: Boolean(row.email_delivered),
     emailMessage: row.email_message,
@@ -108,9 +110,10 @@ export async function insertSubmission(submission: StoredSubmission): Promise<vo
         email_delivered,
         email_message,
         send_status,
+        completed_at,
         sent_at,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     `,
     [
       submission.id,
@@ -135,6 +138,7 @@ export async function insertSubmission(submission: StoredSubmission): Promise<vo
       submission.emailDelivered ? 1 : 0,
       submission.emailMessage,
       submission.sendStatus,
+      submission.completedAt ?? null,
       submission.sentAt ?? null,
       submission.createdAt
     ]
@@ -197,6 +201,7 @@ export function listSubmissions(filter?: { employeeId?: string; sendStatus?: Sub
         ccRecipients: submission.ccRecipients,
         pdfPath: submission.pdfPath,
         createdAt: submission.createdAt,
+        completedAt: submission.completedAt,
         emailDelivered: submission.emailDelivered,
         emailMessage: submission.emailMessage,
         sendStatus: submission.sendStatus,
@@ -211,6 +216,7 @@ export async function updateSubmissionDeliveryResult(input: {
   sendStatus: SubmissionSendStatus;
   emailDelivered: boolean;
   emailMessage: string;
+  completedAt?: string;
   sentAt?: string;
 }): Promise<void> {
   await appDatabase.run(
@@ -219,9 +225,10 @@ export async function updateSubmissionDeliveryResult(input: {
       SET email_delivered = ?,
           email_message = ?,
           send_status = ?,
+          completed_at = COALESCE(?, completed_at),
           sent_at = ?
       WHERE id = ?;
     `,
-    [input.emailDelivered ? 1 : 0, input.emailMessage, input.sendStatus, input.sentAt ?? null, input.id]
+    [input.emailDelivered ? 1 : 0, input.emailMessage, input.sendStatus, input.completedAt ?? null, input.sentAt ?? null, input.id]
   );
 }

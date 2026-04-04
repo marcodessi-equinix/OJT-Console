@@ -1,4 +1,5 @@
 import type { EmployeeProfile, SubmissionListItem, TrainingTemplateSummary } from "../types/training";
+import { dedupeTemplatesByModule, getLogicalSubmissionRepresentatives } from "./moduleIdentity";
 
 export type EmployeeProgressStatus = "not_started" | "blocked" | "ready" | "in_progress" | "complete";
 
@@ -12,10 +13,6 @@ export interface EmployeeProgressSummary {
   failedDeliveries: number;
 }
 
-function distinctTemplateCount(submissions: SubmissionListItem[]): number {
-  return new Set(submissions.map((submission) => submission.templateId)).size;
-}
-
 export function getRelevantTemplates(
   employee: EmployeeProfile,
   templates: TrainingTemplateSummary[]
@@ -24,7 +21,7 @@ export function getRelevantTemplates(
     return [];
   }
 
-  return templates.filter((template) => template.team === employee.team);
+  return dedupeTemplatesByModule(templates.filter((template) => template.team === employee.team));
 }
 
 export function getEmployeeSubmissions(
@@ -51,12 +48,13 @@ export function buildEmployeeProgress(
 
   const relevantTemplates = getRelevantTemplates(employee, templates);
   const employeeSubmissions = getEmployeeSubmissions(employee.id, submissions);
-  const draftSubmissions = employeeSubmissions.filter((submission) => submission.sendStatus === "draft");
-  const failedSubmissions = employeeSubmissions.filter((submission) => submission.sendStatus === "send_failed");
-  const sentSubmissions = employeeSubmissions.filter((submission) => submission.sendStatus === "sent");
+  const logicalSubmissions = getLogicalSubmissionRepresentatives(employeeSubmissions);
+  const draftSubmissions = logicalSubmissions.filter((submission) => submission.sendStatus === "draft");
+  const failedSubmissions = logicalSubmissions.filter((submission) => submission.sendStatus === "send_failed");
+  const sentSubmissions = logicalSubmissions.filter((submission) => submission.sendStatus === "sent");
   const availableModules = relevantTemplates.length;
-  const documentedModules = distinctTemplateCount(employeeSubmissions);
-  const sentModules = distinctTemplateCount(sentSubmissions);
+  const documentedModules = logicalSubmissions.length;
+  const sentModules = sentSubmissions.length;
   const pendingDrafts = draftSubmissions.length;
   const failedDeliveries = failedSubmissions.length;
   const openModules = Math.max(availableModules - documentedModules, 0);

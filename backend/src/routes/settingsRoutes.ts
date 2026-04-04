@@ -1,27 +1,19 @@
 import { Router } from "express";
 import { z } from "zod";
-import { env, smtpConfigured } from "../config/env";
-import { getStoredDeliveryRecipients, saveDeliveryRecipients } from "../repositories/settingsRepository";
+import { smtpConfigured } from "../config/env";
+import { readDeliverySettings, saveDeliveryEmailTemplates, saveDeliveryRecipients } from "../repositories/settingsRepository";
 
 const settingsSchema = z.object({
-  deliveryRecipients: z.array(z.email()).min(1)
+  deliveryRecipients: z.array(z.email()).min(1),
+  deliveryEmailSubjectTemplate: z.string().trim().min(1),
+  deliveryEmailBodyTemplate: z.string().trim().min(1)
 });
 
-function getFallbackRecipients(): string[] {
-  return (env.DEFAULT_PRIMARY_RECIPIENT ?? "")
-    .split(/[;,\n]/)
-    .map((recipient) => recipient.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 function readSettings() {
-  const deliveryRecipients = getStoredDeliveryRecipients();
-  const effectiveRecipients = deliveryRecipients.length ? deliveryRecipients : getFallbackRecipients();
+  const settings = readDeliverySettings();
 
   return {
-    defaultPrimaryRecipient: effectiveRecipients[0] ?? "",
-    defaultCcMe: "",
-    deliveryRecipients: effectiveRecipients,
+    ...settings,
     smtpConfigured
   };
 }
@@ -37,6 +29,10 @@ export function createSettingsRouter(): Router {
     try {
       const parsed = settingsSchema.parse(request.body);
       await saveDeliveryRecipients(parsed.deliveryRecipients);
+      await saveDeliveryEmailTemplates({
+        subjectTemplate: parsed.deliveryEmailSubjectTemplate,
+        bodyTemplate: parsed.deliveryEmailBodyTemplate
+      });
       response.json(readSettings());
     } catch (error) {
       next(error);

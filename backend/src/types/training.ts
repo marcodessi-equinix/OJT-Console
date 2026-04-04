@@ -2,7 +2,7 @@ export type TemplateLanguage = "English" | "German";
 export type Team = "C-OPS" | "F-OPS";
 export type TemplateTeam = Team;
 export type EmployeeTeam = Team;
-export type SubmissionSendStatus = "draft" | "sent" | "send_failed";
+export type SubmissionSendStatus = "draft" | "completed" | "sent" | "send_failed";
 export type TrainingSessionStatus = "assigned" | "in_progress" | "paused" | "completed" | "delivered" | "cancelled";
 export type TrainingSessionDeliveryStatus = "pending" | "draft_saved" | "mail_prepared" | "sent" | "send_failed";
 
@@ -32,6 +32,7 @@ export interface TrainerSession {
   lastName: string;
   name: string;
   email: string;
+  team: EmployeeTeam;
   createdAt: string;
   hasPin: boolean;
   mustChangePin: boolean;
@@ -149,6 +150,7 @@ export interface StoredSubmission extends SubmissionInput {
   language: TemplateLanguage;
   pdfPath: string;
   createdAt: string;
+  completedAt?: string;
   ccRecipients: string[];
   emailDelivered: boolean;
   emailMessage: string;
@@ -172,6 +174,7 @@ export interface SubmissionListItem {
   ccRecipients: string[];
   pdfPath: string;
   createdAt: string;
+  completedAt?: string;
   emailDelivered: boolean;
   emailMessage: string;
   sendStatus: SubmissionSendStatus;
@@ -183,5 +186,7 @@ export interface AppSettings {
   defaultPrimaryRecipient: string;
   defaultCcMe: string;
   deliveryRecipients: string[];
+  deliveryEmailSubjectTemplate: string;
+  deliveryEmailBodyTemplate: string;
   smtpConfigured: boolean;
 }

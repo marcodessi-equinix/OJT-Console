@@ -19,3 +19,7 @@ export function createSubmissionPdfStorageName(
 ): string {
   return `${sanitizeFileNamePart(input.employeeName)}-${sanitizeFileNamePart(input.templateTitle)}-${submissionId}.pdf`;
 }
+
+export function createSubmissionBundlePdfDisplayName(input: { employeeName: string }): string {
+  return `${sanitizeFileNamePart(input.employeeName)}-ojt-bundle.pdf`;
+}

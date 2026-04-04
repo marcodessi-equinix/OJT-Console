@@ -5,12 +5,14 @@ import {
   deleteEmployee as apiDeleteEmployee,
   fetchEmployees,
   fetchSettings,
+  fetchSubmissionBundlePdf,
   fetchSubmissionPdf,
   fetchSubmissions,
   fetchTemplate,
   fetchTemplates,
   loginAdmin,
   loginTrainer,
+  openSubmissionOutlookDraft,
   sendSubmissionBatch,
   submitTraining,
   updateSettings,
@@ -29,17 +31,17 @@ import { TemplateCatalog } from "./components/TemplateCatalog";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { useLanguage } from "./features/language/LanguageProvider";
 import { useLocalStorageState } from "./hooks/useLocalStorageState";
+import { dedupeTemplatesByModule, getModuleKey } from "./utils/moduleIdentity";
 import { createAutoSignatureDataUrl } from "./utils/signature";
 import type {
   AdminSession,
   AppSettings,
-  BatchSendResponse,
   EmployeeProfile,
   EmployeeRole,
   EmployeeTeam,
   SectionReview,
   SubmissionListItem,
-  SubmissionResponse,
+  SubmissionSendStatus,
   TrainerSession,
   TrainingTemplate,
   TrainingTemplateSummary
@@ -49,18 +51,40 @@ const emptySettings: AppSettings = {
   defaultPrimaryRecipient: "",
   defaultCcMe: "",
   deliveryRecipients: [],
+  deliveryEmailSubjectTemplate: "",
+  deliveryEmailBodyTemplate: "",
   smtpConfigured: false
 };
 
 const selectedEmployeeStorageKey = "ojt.selectedEmployeeId";
 const selectedTemplateStorageKey = "ojt.selectedTemplateId";
+const allTeams: EmployeeTeam[] = ["C-OPS", "F-OPS"];
 
 const validViews: AppView[] = ["dashboard", "info", "employees", "documents", "delivery"];
-const publicViews: AppView[] = ["dashboard", "info", "documents"];
+const publicViews: AppView[] = ["info"];
 
 function getViewFromPath(): AppView {
   const path = window.location.pathname.replace(/^\//, "");
   return validViews.includes(path as AppView) ? (path as AppView) : "dashboard";
+}
+
+function startBrowserDownload(blob: Blob, fileName: string): void {
+  const downloadBlob = new Blob([blob], { type: "application/octet-stream" });
+  const downloadUrl = URL.createObjectURL(downloadBlob);
+  const link = document.createElement("a");
+
+  link.href = downloadUrl;
+  link.download = fileName;
+  link.rel = "noopener";
+  link.style.display = "none";
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(downloadUrl);
+  }, 1000);
 }
 
 function buildUniqueEmails(values: string[]): string[] {
@@ -87,6 +111,13 @@ function buildCompletedReviews(template: TrainingTemplate): SectionReview[] {
   }));
 }
 
+type DeliveryActionResult = {
+  count: number;
+  emailDelivered: boolean;
+  emailMessage: string;
+  sendStatus: SubmissionSendStatus;
+};
+
 export default function App() {
   const { locale, messages } = useLanguage();
   const [currentView, setCurrentView] = useState<AppView>(getViewFromPath);
@@ -106,7 +137,7 @@ export default function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
   const [sendingBatch, setSendingBatch] = useState(false);
-  const [lastResult, setLastResult] = useState<SubmissionResponse | BatchSendResponse | null>(null);
+  const [lastResult, setLastResult] = useState<DeliveryActionResult | null>(null);
   const [adminAuthBusy, setAdminAuthBusy] = useState(false);
   const [adminAuthError, setAdminAuthError] = useState<string | null>(null);
   const [trainerAuthBusy, setTrainerAuthBusy] = useState(false);
@@ -122,9 +153,16 @@ export default function App() {
     primaryRecipient: ""
   });
 
+  const activeTrainerTeam = activeTrainer?.team === "C-OPS" || activeTrainer?.team === "F-OPS"
+    ? activeTrainer.team
+    : null;
   const hasAdminAccess = Boolean(activeAdmin);
   const hasTrainerAccess = Boolean(activeTrainer && !activeTrainer.mustChangePin);
   const hasPrivilegedAccess = hasAdminAccess || hasTrainerAccess;
+  const defaultView: AppView = hasPrivilegedAccess ? "dashboard" : "info";
+  const effectiveView: AppView = hasPrivilegedAccess ? currentView : "info";
+  const trainerScopeTeam = hasTrainerAccess ? activeTrainerTeam : null;
+  const visibleTeams = useMemo<EmployeeTeam[]>(() => trainerScopeTeam ? [trainerScopeTeam] : allTeams, [trainerScopeTeam]);
   const visibleViews = useMemo(() => hasPrivilegedAccess ? validViews : publicViews, [hasPrivilegedAccess]);
   const trainerOptions = useMemo(() => employees
     .filter((employee) => employee.role === "trainer")
@@ -135,24 +173,38 @@ export default function App() {
       team: employee.team,
       hasPin: employee.hasPin
     })), [employees]);
-  const selectedEmployee = useMemo(() => employees.find((employee) => employee.id === selectedEmployeeId), [employees, selectedEmployeeId]);
+  const scopedEmployees = useMemo(() => trainerScopeTeam
+    ? employees.filter((employee) => employee.team === trainerScopeTeam)
+    : employees, [employees, trainerScopeTeam]);
+  const scopedTemplates = useMemo(() => trainerScopeTeam
+    ? templates.filter((template) => template.team === trainerScopeTeam)
+    : templates, [templates, trainerScopeTeam]);
+  const scopedEmployeeIds = useMemo(() => new Set(scopedEmployees.map((employee) => employee.id)), [scopedEmployees]);
+  const scopedSubmissions = useMemo(() => trainerScopeTeam
+    ? allSubmissions.filter((submission) => scopedEmployeeIds.has(submission.employeeId))
+    : allSubmissions, [allSubmissions, scopedEmployeeIds, trainerScopeTeam]);
+  const selectedEmployee = useMemo(() => scopedEmployees.find((employee) => employee.id === selectedEmployeeId), [scopedEmployees, selectedEmployeeId]);
   const deliveryTemplates = useMemo(() => {
+    const preferredLanguage = locale === "de" ? "German" : "English";
     if (!selectedEmployee) {
-      return templates;
+      return dedupeTemplatesByModule(scopedTemplates, preferredLanguage);
     }
 
-    return templates.filter((template) => template.team === selectedEmployee.team);
-  }, [selectedEmployee, templates]);
+    return dedupeTemplatesByModule(
+      scopedTemplates.filter((template) => template.team === selectedEmployee.team),
+      preferredLanguage
+    );
+  }, [locale, scopedTemplates, selectedEmployee]);
   const selectedTemplateSummary = useMemo(() => deliveryTemplates.find((template) => template.id === selectedTemplateId) ?? null, [deliveryTemplates, selectedTemplateId]);
   const submissions = useMemo(() => {
     if (!selectedEmployeeId) {
       return [];
     }
 
-    return allSubmissions
+    return scopedSubmissions
       .filter((submission) => submission.employeeId === selectedEmployeeId)
       .sort((left, right) => new Date(right.sentAt ?? right.createdAt).getTime() - new Date(left.sentAt ?? left.createdAt).getTime());
-  }, [allSubmissions, selectedEmployeeId]);
+  }, [scopedSubmissions, selectedEmployeeId]);
 
   const navigate = useCallback((view: AppView) => {
     window.history.pushState(null, "", `/${view}`);
@@ -179,13 +231,20 @@ export default function App() {
   }, [activeAdmin, activeTrainer, setActiveAdmin]);
 
   useEffect(() => {
+    if (activeTrainer && !activeTrainerTeam) {
+      setActiveTrainer(null);
+      setTrainerProfileMessage(null);
+    }
+  }, [activeTrainer, activeTrainerTeam, setActiveTrainer]);
+
+  useEffect(() => {
     if (visibleViews.includes(currentView)) {
       return;
     }
 
-    window.history.replaceState(null, "", "/dashboard");
-    setCurrentView("dashboard");
-  }, [currentView, visibleViews]);
+    window.history.replaceState(null, "", `/${defaultView}`);
+    setCurrentView(defaultView);
+  }, [currentView, defaultView, visibleViews]);
 
   useEffect(() => {
     if (hasPrivilegedAccess) {
@@ -249,26 +308,32 @@ export default function App() {
       return;
     }
 
+    if (!scopedTemplates.some((template) => template.id === selectedTemplateId)) {
+      setSelectedTemplate(null);
+      setSelectedTemplateId("");
+      return;
+    }
+
     void fetchTemplate(selectedTemplateId)
       .then(setSelectedTemplate)
       .catch(() => {
         setSelectedTemplate(null);
         setSelectedTemplateId("");
       });
-  }, [selectedTemplateId]);
+  }, [scopedTemplates, selectedTemplateId]);
 
   useEffect(() => {
-    if (selectedEmployeeId && !employees.some((employee) => employee.id === selectedEmployeeId)) {
-      setSelectedEmployeeId(employees.find((employee) => employee.role === "employee")?.id ?? "");
+    if (selectedEmployeeId && !scopedEmployees.some((employee) => employee.id === selectedEmployeeId)) {
+      setSelectedEmployeeId(scopedEmployees.find((employee) => employee.role === "employee")?.id ?? "");
     }
-  }, [employees, selectedEmployeeId]);
+  }, [scopedEmployees, selectedEmployeeId]);
 
   useEffect(() => {
-    if (selectedTemplateId && !templates.some((template) => template.id === selectedTemplateId)) {
+    if (selectedTemplateId && !deliveryTemplates.some((template) => template.id === selectedTemplateId)) {
       setSelectedTemplateId("");
       setSelectedTemplate(null);
     }
-  }, [selectedTemplateId, templates]);
+  }, [deliveryTemplates, selectedTemplateId]);
 
   useEffect(() => {
     if (!selectedEmployee || !selectedTemplateSummary) {
@@ -280,6 +345,23 @@ export default function App() {
       setSelectedTemplate(null);
     }
   }, [selectedEmployee, selectedTemplateSummary]);
+
+  useEffect(() => {
+    if (!selectedEmployeeId || !selectedTemplateSummary) {
+      return;
+    }
+
+    const selectedModuleTitle = getModuleKey(selectedTemplateSummary.title);
+    const alreadyRecorded = allSubmissions.some((submission) => (
+      submission.employeeId === selectedEmployeeId
+      && getModuleKey(submission.templateTitle) === selectedModuleTitle
+    ));
+
+    if (alreadyRecorded) {
+      setSelectedTemplateId("");
+      setSelectedTemplate(null);
+    }
+  }, [allSubmissions, selectedEmployeeId, selectedTemplateSummary]);
 
   useEffect(() => {
     const nextTrainerName = activeTrainer?.name ?? activeAdmin?.name ?? "";
@@ -371,7 +453,11 @@ export default function App() {
     setAdminAuthError(null);
   }, [setActiveAdmin]);
 
-  const handleAdminSettingsSave = useCallback(async (payload: { deliveryRecipients: string[] }): Promise<void> => {
+  const handleAdminSettingsSave = useCallback(async (payload: {
+    deliveryRecipients: string[];
+    deliveryEmailSubjectTemplate: string;
+    deliveryEmailBodyTemplate: string;
+  }): Promise<void> => {
     try {
       setAdminSettingsBusy(true);
       setAdminSettingsError(null);
@@ -431,16 +517,71 @@ export default function App() {
   }, []);
 
   const handleDownloadPdf = useCallback(async (submissionId: string): Promise<void> => {
-    const { blob, fileName } = await fetchSubmissionPdf(submissionId);
-    const objectUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(objectUrl);
-  }, []);
+    setActionError(null);
+    setLastResult(null);
+
+    try {
+      const result = await fetchSubmissionPdf(submissionId);
+      startBrowserDownload(result.blob, result.fileName);
+      await refreshSubmissions();
+      setLastResult({
+        count: 1,
+        emailDelivered: false,
+        emailMessage: locale === "de"
+          ? `PDF-Download gestartet: ${result.fileName}`
+          : `PDF download started: ${result.fileName}`,
+        sendStatus: "completed"
+      });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : messages.app.pdfDownloadFailed);
+    }
+  }, [locale, messages.app.pdfDownloadFailed, refreshSubmissions]);
+
+  const handleDownloadBundle = useCallback(async (employeeId: string, submissionIds?: string[]): Promise<void> => {
+    setActionError(null);
+    setLastResult(null);
+
+    try {
+      const result = await fetchSubmissionBundlePdf({ employeeId, submissionIds });
+      startBrowserDownload(result.blob, result.fileName);
+      await refreshSubmissions();
+      setLastResult({
+        count: submissionIds?.length ?? 0,
+        emailDelivered: false,
+        emailMessage: locale === "de"
+          ? `Sammel-PDF-Download gestartet: ${result.fileName}`
+          : `Bundle PDF download started: ${result.fileName}`,
+        sendStatus: "completed"
+      });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : messages.app.pdfDownloadFailed);
+    }
+  }, [locale, messages.app.pdfDownloadFailed, refreshSubmissions]);
+
+  const handleOpenMailDraft = useCallback(async (employeeId: string, submissionIds?: string[]): Promise<void> => {
+    const primaryRecipient = employeeId === selectedEmployeeId
+      ? deliveryForm.primaryRecipient.trim() || undefined
+      : undefined;
+    const additionalCc = employeeId === selectedEmployeeId
+      ? buildUniqueEmails([selectedEmployee?.email ?? "", deliveryForm.trainerEmail])
+      : undefined;
+    const result = await openSubmissionOutlookDraft({
+      employeeId,
+      submissionIds,
+      primaryRecipient,
+      additionalCc
+    });
+
+    await refreshSubmissions();
+    setLastResult({
+      count: result.count ?? (submissionIds?.length ?? 0),
+      emailDelivered: false,
+      emailMessage: locale === "de"
+        ? `Outlook-Entwurf mit Anhang geöffnet: ${result.fileName}`
+        : `Outlook draft opened with attachment: ${result.fileName}`,
+      sendStatus: result.sendStatus
+    });
+  }, [deliveryForm.primaryRecipient, deliveryForm.trainerEmail, locale, refreshSubmissions, selectedEmployee?.email, selectedEmployeeId]);
 
   const handleOpenDelivery = useCallback((employeeId: string) => {
     setSelectedEmployeeId(employeeId);
@@ -467,7 +608,7 @@ export default function App() {
       return;
     }
 
-    if (submissions.some((submission) => submission.templateId === selectedTemplate.id)) {
+    if (submissions.some((submission) => getModuleKey(submission.templateTitle) === getModuleKey(selectedTemplate.title))) {
       setActionError(locale === "de"
         ? "Dieses Modul wurde für den Mitarbeiter bereits erfasst."
         : "This module has already been recorded for the employee.");
@@ -497,7 +638,12 @@ export default function App() {
         sectionReviews: buildCompletedReviews(selectedTemplate)
       });
       await refreshSubmissions();
-      setLastResult(result);
+      setLastResult({
+        count: 1,
+        emailDelivered: result.emailDelivered,
+        emailMessage: result.emailMessage,
+        sendStatus: result.sendStatus
+      });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : messages.app.submissionFailed);
     } finally {
@@ -505,21 +651,11 @@ export default function App() {
     }
   }, [activeAdmin?.name, activeTrainer?.email, activeTrainer?.name, deliveryForm.primaryRecipient, deliveryForm.trainerEmail, deliveryForm.trainerName, locale, messages.app.selectEmployeeAndDocument, messages.app.submissionFailed, refreshSubmissions, selectedEmployee, selectedTemplate, submissions]);
 
-  const handleSendBatch = useCallback(async (): Promise<void> => {
-    if (!selectedEmployee) {
+  const handleSendBatch = useCallback(async (employeeId: string, submissionIds?: string[]): Promise<void> => {
+    const employee = employees.find((item) => item.id === employeeId);
+
+    if (!employee) {
       setActionError(messages.app.selectEmployeeFirst);
-      return;
-    }
-
-    if (!deliveryForm.primaryRecipient.trim()) {
-      setActionError(messages.app.fillDeliveryChecklist);
-      return;
-    }
-
-    if (!submissions.some((submission) => submission.sendStatus === "draft")) {
-      setActionError(locale === "de"
-        ? "Für diesen Mitarbeiter gibt es keine offenen Entwürfe."
-        : "There are no open drafts for this employee.");
       return;
     }
 
@@ -529,43 +665,56 @@ export default function App() {
 
     try {
       const result = await sendSubmissionBatch({
-        employeeId: selectedEmployee.id,
-        primaryRecipient: deliveryForm.primaryRecipient.trim(),
-        additionalCc: buildUniqueEmails([selectedEmployee.email, deliveryForm.trainerEmail])
+        employeeId,
+        submissionIds,
+        primaryRecipient: employeeId === selectedEmployeeId
+          ? deliveryForm.primaryRecipient.trim() || undefined
+          : undefined,
+        additionalCc: employeeId === selectedEmployeeId
+          ? buildUniqueEmails([employee.email, deliveryForm.trainerEmail])
+          : undefined
       });
       await refreshSubmissions();
-      setLastResult(result);
+      setLastResult({
+        count: result.count,
+        emailDelivered: result.emailDelivered,
+        emailMessage: result.emailMessage,
+        sendStatus: result.sendStatus
+      });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : messages.app.batchSendFailed);
     } finally {
       setSendingBatch(false);
     }
-  }, [deliveryForm.primaryRecipient, deliveryForm.trainerEmail, locale, messages.app.batchSendFailed, messages.app.fillDeliveryChecklist, messages.app.selectEmployeeFirst, refreshSubmissions, selectedEmployee, submissions]);
+  }, [deliveryForm.primaryRecipient, deliveryForm.trainerEmail, employees, messages.app.batchSendFailed, messages.app.selectEmployeeFirst, refreshSubmissions, selectedEmployeeId]);
 
   const pageContent = useMemo(() => {
-    if (currentView === "dashboard") {
+    if (effectiveView === "dashboard") {
       return (
         <Dashboard
-          employees={employees}
-          templates={templates}
-          submissions={allSubmissions}
+          employees={scopedEmployees}
+          templates={scopedTemplates}
+          submissions={scopedSubmissions}
+          visibleTeams={visibleTeams}
         />
       );
     }
 
-    if (currentView === "info") {
+    if (effectiveView === "info") {
       return <ProgramInfo />;
     }
 
-    if (currentView === "employees") {
+    if (effectiveView === "employees") {
       return (
         <EmployeeManager
-          employees={employees}
-          templates={templates}
-          submissions={allSubmissions}
+          employees={scopedEmployees}
+          templates={scopedTemplates}
+          submissions={scopedSubmissions}
           canManage={hasAdminAccess}
           canOpenDelivery={hasPrivilegedAccess}
           selectedEmployeeId={selectedEmployeeId}
+          visibleTeams={visibleTeams}
+          lockedTeam={trainerScopeTeam}
           onSelect={setSelectedEmployeeId}
           onOpenDelivery={handleOpenDelivery}
           onCreate={handleCreateEmployee}
@@ -576,45 +725,55 @@ export default function App() {
       );
     }
 
-    if (currentView === "documents") {
+    if (effectiveView === "documents") {
       return (
         <TemplateCatalog
-          templates={templates}
+          templates={scopedTemplates}
           canManageTemplates={hasAdminAccess}
+          visibleTeams={visibleTeams}
           onRefresh={refreshTemplates}
         />
       );
     }
 
-    if (currentView === "delivery") {
+    if (effectiveView === "delivery") {
       return (
         <DeliveryWorkspace
-          employees={employees}
+          employees={scopedEmployees}
           templates={deliveryTemplates}
+          availableTemplates={scopedTemplates}
+          allSubmissions={scopedSubmissions}
+          settings={settings}
           selectedEmployee={selectedEmployee}
           selectedEmployeeId={selectedEmployeeId}
           selectedTemplate={selectedTemplateSummary}
           selectedTemplateId={selectedTemplateId}
           recipientOptions={settings.deliveryRecipients}
+          canManageEmailTemplates={hasAdminAccess}
           form={deliveryForm}
-          submissions={submissions}
           savingDraft={savingDraft}
           sendingBatch={sendingBatch}
           lastResult={lastResult}
           error={actionError}
           currentTrainer={activeTrainer}
+          adminSettingsBusy={adminSettingsBusy}
+          adminSettingsError={adminSettingsError}
+          adminSettingsMessage={adminSettingsMessage}
           onFieldChange={updateDeliveryField}
           onSelectEmployee={handleDeliveryEmployeeSelect}
           onSelectTemplate={handleDeliveryTemplateSelect}
           onSaveDraft={createSubmission}
           onSendBatch={handleSendBatch}
           onDownloadPdf={handleDownloadPdf}
+          onDownloadBundle={handleDownloadBundle}
+          onOpenMailDraft={handleOpenMailDraft}
+          onAdminSettingsSave={handleAdminSettingsSave}
         />
       );
     }
 
     return null;
-  }, [actionError, activeTrainer, allSubmissions, createSubmission, currentView, deliveryForm, deliveryTemplates, employees, handleBulkImportEmployees, handleCreateEmployee, handleDeleteEmployee, handleDeliveryEmployeeSelect, handleDeliveryTemplateSelect, handleDownloadPdf, handleOpenDelivery, handleSendBatch, handleUpdateEmployee, hasAdminAccess, hasPrivilegedAccess, lastResult, refreshTemplates, savingDraft, selectedEmployee, selectedEmployeeId, selectedTemplateId, selectedTemplateSummary, sendingBatch, settings.deliveryRecipients, submissions, templates, updateDeliveryField]);
+  }, [actionError, activeTrainer, adminSettingsBusy, adminSettingsError, adminSettingsMessage, createSubmission, deliveryForm, deliveryTemplates, effectiveView, handleAdminSettingsSave, handleBulkImportEmployees, handleCreateEmployee, handleDeleteEmployee, handleDeliveryEmployeeSelect, handleDeliveryTemplateSelect, handleDownloadBundle, handleDownloadPdf, handleOpenDelivery, handleOpenMailDraft, handleSendBatch, handleUpdateEmployee, hasAdminAccess, hasPrivilegedAccess, lastResult, refreshTemplates, savingDraft, scopedEmployees, scopedSubmissions, scopedTemplates, selectedEmployee, selectedEmployeeId, selectedTemplateId, selectedTemplateSummary, sendingBatch, settings, updateDeliveryField, visibleTeams]);
 
   if (loading) return <div className="loading-screen">{messages.app.loading}</div>;
   if (error) return (
@@ -628,17 +787,19 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <AppSidebar
-        currentView={currentView}
-        collapsed={sidebarCollapsed}
-        visibleViews={visibleViews}
-        onToggleCollapse={handleToggleSidebar}
-        onViewChange={navigate}
-      />
+      {hasPrivilegedAccess && (
+        <AppSidebar
+          currentView={currentView}
+          collapsed={sidebarCollapsed}
+          visibleViews={visibleViews}
+          onToggleCollapse={handleToggleSidebar}
+          onViewChange={navigate}
+        />
+      )}
 
       <div className="main-area">
         <header className="topbar">
-          <span className="topbar-title">{messages.shell.viewTitles[currentView]}</span>
+          <span className="topbar-title">{messages.shell.viewTitles[effectiveView]}</span>
           <div className="topbar-actions">
             <LanguageToggle />
             <SessionPanel
@@ -651,22 +812,17 @@ export default function App() {
               trainerAuthError={trainerAuthError}
               trainerProfileBusy={trainerProfileBusy}
               trainerProfileMessage={trainerProfileMessage}
-              settings={settings}
-              adminSettingsBusy={adminSettingsBusy}
-              adminSettingsError={adminSettingsError}
-              adminSettingsMessage={adminSettingsMessage}
               onAdminLogin={handleAdminLogin}
               onTrainerLogin={handleTrainerLogin}
               onAdminLogout={handleAdminLogout}
               onTrainerLogout={handleTrainerLogout}
               onTrainerProfileSave={handleTrainerProfileSave}
-              onAdminSettingsSave={handleAdminSettingsSave}
             />
             <ThemeToggle />
           </div>
         </header>
 
-        <div className={`content-area ${currentView === "employees" ? "content-area-locked" : ""}`}>
+        <div className={`content-area ${effectiveView === "employees" ? "content-area-locked" : ""}`}>
           {pageContent}
         </div>
       </div>

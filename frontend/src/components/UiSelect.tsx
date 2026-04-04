@@ -42,6 +42,7 @@ export function UiSelect({
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const triggerInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const ignoreNextFocusOpenRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [openUpwards, setOpenUpwards] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -144,6 +145,8 @@ export function UiSelect({
 
   function handleSelect(nextValue: string): void {
     onChange(nextValue);
+    setSearchQuery("");
+    ignoreNextFocusOpenRef.current = true;
     setOpen(false);
     getTriggerElement()?.focus();
   }
@@ -157,18 +160,31 @@ export function UiSelect({
           id={triggerId}
           ref={triggerInputRef}
           type="text"
+          name={`${triggerId}-search`}
           className={`form-input ui-select-trigger ui-select-trigger-input ${open ? "is-open" : ""}`}
           aria-controls={open ? listboxId : undefined}
+          aria-autocomplete="list"
           aria-label={ariaLabel}
           disabled={disabled}
           title={title}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
           value={open ? searchQuery : (selectedOption?.label ?? "")}
           placeholder={placeholder}
           onFocus={() => {
-            if (!disabled) {
-              setOpen(true);
-              setSearchQuery("");
+            if (disabled) {
+              return;
             }
+
+            if (ignoreNextFocusOpenRef.current) {
+              ignoreNextFocusOpenRef.current = false;
+              return;
+            }
+
+            setOpen(true);
+            setSearchQuery("");
           }}
           onChange={(event) => {
             setSearchQuery(event.target.value);

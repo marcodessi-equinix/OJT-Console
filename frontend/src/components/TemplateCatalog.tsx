@@ -29,6 +29,7 @@ async function fileToBase64(file: File): Promise<string> {
 interface Props {
   templates: TrainingTemplateSummary[];
   canManageTemplates: boolean;
+  visibleTeams: TemplateTeam[];
   onRefresh: () => Promise<void>;
 }
 
@@ -47,6 +48,7 @@ function resolveTemplateTeam(team: string | null | undefined): TemplateTeam {
 export function TemplateCatalog({
   templates,
   canManageTemplates,
+  visibleTeams,
   onRefresh
 }: Props) {
   const { locale, messages } = useLanguage();
@@ -286,7 +288,7 @@ export function TemplateCatalog({
           <div className="document-language-grid">
             {groups.map((group) => {
               const items = templates.filter((template) => template.language === group.language);
-              const teamGroups: TemplateTeam[] = ["C-OPS", "F-OPS"];
+              const teamGroups = visibleTeams;
 
               return (
                 <section key={group.language} className={`document-language-column document-language-column-${group.language.toLowerCase()}`}>

@@ -13,6 +13,8 @@ interface Props {
   canManage: boolean;
   canOpenDelivery: boolean;
   selectedEmployeeId: string;
+  visibleTeams: EmployeeTeam[];
+  lockedTeam?: EmployeeTeam | null;
   onSelect: (id: string) => void;
   onOpenDelivery: (id: string) => void;
   onCreate: (payload: { firstName: string; lastName: string; email: string; role: EmployeeRole; team: EmployeeTeam }) => Promise<void>;
@@ -94,6 +96,8 @@ export function EmployeeManager({
   canManage,
   canOpenDelivery,
   selectedEmployeeId,
+  visibleTeams,
+  lockedTeam,
   onSelect,
   onOpenDelivery,
   onCreate,
@@ -108,8 +112,6 @@ export function EmployeeManager({
   const [teamFilter, setTeamFilter] = useState<"all" | EmployeeTeam>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | EmployeeProgressStatus>("all");
   const [sortBy, setSortBy] = useState<"name_asc" | "name_desc" | "status" | "progress_desc">("name_asc");
-  const [pageSize, setPageSize] = useState(12);
-  const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [createFirstName, setCreateFirstName] = useState("");
   const [createLastName, setCreateLastName] = useState("");
@@ -128,11 +130,11 @@ export function EmployeeManager({
   const fileRef = useRef<HTMLInputElement>(null);
   const activeHeaderFilter: EmployeeCategoryFilter = roleFilter === "trainer"
     ? "trainer"
-    : teamFilter === "F-OPS"
+    : lockedTeam ?? (teamFilter === "F-OPS"
       ? "F-OPS"
       : teamFilter === "C-OPS"
         ? "C-OPS"
-        : "all";
+        : "all");
 
   const allRows = employees.map((employee) => ({
     employee,
@@ -171,16 +173,17 @@ export function EmployeeManager({
     });
 
   const trainerCount = employees.filter((employee) => employee.role === "trainer").length;
-  const cOpsCount = employees.filter((employee) => employee.role === "employee" && employee.team === "C-OPS").length;
-  const fOpsCount = employees.filter((employee) => employee.role === "employee" && employee.team === "F-OPS").length;
+  const teamCounts = {
+    "C-OPS": employees.filter((employee) => employee.role === "employee" && employee.team === "C-OPS").length,
+    "F-OPS": employees.filter((employee) => employee.role === "employee" && employee.team === "F-OPS").length
+  };
   const filteredTrainerCount = filteredRows.filter((row) => row.employee.role === "trainer").length;
-  const filteredCOpsCount = filteredRows.filter((row) => row.employee.role === "employee" && row.employee.team === "C-OPS").length;
-  const filteredFOpsCount = filteredRows.filter((row) => row.employee.role === "employee" && row.employee.team === "F-OPS").length;
+  const filteredTeamCounts = {
+    "C-OPS": filteredRows.filter((row) => row.employee.role === "employee" && row.employee.team === "C-OPS").length,
+    "F-OPS": filteredRows.filter((row) => row.employee.role === "employee" && row.employee.team === "F-OPS").length
+  };
   const completedVisibleCount = filteredRows.filter((row) => row.progressSummary?.status === "complete").length;
   const activeVisibleCount = filteredRows.filter((row) => row.progressSummary && row.progressSummary.status !== "not_started").length;
-  const totalPages = Math.max(Math.ceil(filteredRows.length / pageSize), 1);
-  const currentPage = Math.min(page, totalPages);
-  const pagedRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const editorOpen = showCreate || Boolean(editingId);
   const isCreateMode = showCreate && !editingId;
   const activeEditorRole = isCreateMode ? createRole : editRole;
@@ -190,13 +193,16 @@ export function EmployeeManager({
     : activeHeaderFilter === "F-OPS"
       ? LOGO_FOPS
       : LOGO_COPS;
+  const visibleTeamSummary = visibleTeams
+    .map((team) => `${filteredTeamCounts[team]} ${team}`)
+    .join(" - ");
 
   function resetCreateForm(): void {
     setCreateFirstName("");
     setCreateLastName("");
     setCreateEmail("");
     setCreateRole("employee");
-    setCreateTeam("C-OPS");
+    setCreateTeam(lockedTeam ?? "C-OPS");
   }
 
   function closeEditor(): void {
@@ -217,7 +223,6 @@ export function EmployeeManager({
       setRoleFilter("all");
       setTeamFilter("all");
       setStatusFilter("all");
-      setPage(1);
       return;
     }
 
@@ -225,14 +230,12 @@ export function EmployeeManager({
       setRoleFilter("trainer");
       setTeamFilter("all");
       setStatusFilter("all");
-      setPage(1);
       return;
     }
 
     setRoleFilter("employee");
     setTeamFilter(nextFilter);
     setStatusFilter("all");
-    setPage(1);
   }
 
   const roleFilterOptions = [
@@ -244,7 +247,7 @@ export function EmployeeManager({
     { value: "all", label: messages.employees.allTeams },
     { value: "C-OPS", label: "C-OPS" },
     { value: "F-OPS", label: "F-OPS" }
-  ];
+  ].filter((option) => option.value === "all" || visibleTeams.includes(option.value as EmployeeTeam));
   const statusFilterOptions = [
     { value: "all", label: messages.employees.allStatuses },
     { value: "not_started", label: messages.common.trainingStatus.notStarted },
@@ -259,11 +262,6 @@ export function EmployeeManager({
     { value: "status", label: messages.employees.sortStatus },
     { value: "progress_desc", label: messages.employees.sortProgress }
   ];
-  const pageSizeOptions = [
-    { value: "12", label: `12 ${messages.employees.perPage}` },
-    { value: "24", label: `24 ${messages.employees.perPage}` },
-    { value: "50", label: `50 ${messages.employees.perPage}` }
-  ];
   const editorRoleOptions = [
     { value: "employee", label: messages.common.roles.employee },
     { value: "trainer", label: messages.common.roles.trainer }
@@ -271,7 +269,7 @@ export function EmployeeManager({
   const editorTeamOptions = [
     { value: "C-OPS", label: "C-OPS" },
     { value: "F-OPS", label: "F-OPS" }
-  ];
+  ].filter((option) => !lockedTeam || option.value === lockedTeam);
 
   async function handleCreate() {
     if (!createFirstName.trim() || !createLastName.trim() || !createEmail.trim()) return;
@@ -472,32 +470,27 @@ export function EmployeeManager({
                 </div>
               </div>
             </button>
-            <button type="button" className={`emp-stat-button${activeHeaderFilter === "C-OPS" ? " active" : ""}`} onClick={() => applyHeaderFilter("C-OPS")}>
-              <div className="emp-stat">
-                <img src={LOGO_COPS} alt="C-OPS" className="emp-stat-logo" />
-                <div className="emp-stat-copy">
-                  <div className="emp-stat-value">{cOpsCount}</div>
-                  <div className="emp-stat-label">C-OPS</div>
+            {visibleTeams.map((team) => (
+              <button key={team} type="button" className={`emp-stat-button${activeHeaderFilter === team ? " active" : ""}`} onClick={() => applyHeaderFilter(team)}>
+                <div className="emp-stat">
+                  <img src={team === "F-OPS" ? LOGO_FOPS : LOGO_COPS} alt={team} className="emp-stat-logo" />
+                  <div className="emp-stat-copy">
+                    <div className="emp-stat-value">{teamCounts[team]}</div>
+                    <div className="emp-stat-label">{team}</div>
+                  </div>
                 </div>
-              </div>
-            </button>
-            <button type="button" className={`emp-stat-button${activeHeaderFilter === "F-OPS" ? " active" : ""}`} onClick={() => applyHeaderFilter("F-OPS")}>
-              <div className="emp-stat">
-                <img src={LOGO_FOPS} alt="F-OPS" className="emp-stat-logo" />
-                <div className="emp-stat-copy">
-                  <div className="emp-stat-value">{fOpsCount}</div>
-                  <div className="emp-stat-label">F-OPS</div>
+              </button>
+            ))}
+            {!lockedTeam && (
+              <button type="button" className={`emp-stat-button${activeHeaderFilter === "all" ? " active" : ""}`} onClick={() => applyHeaderFilter("all")}>
+                <div className="emp-stat emp-stat-total">
+                  <div className="emp-stat-copy">
+                    <div className="emp-stat-value">{employees.length}</div>
+                    <div className="emp-stat-label">{locale === "de" ? "Gesamt" : "Total"}</div>
+                  </div>
                 </div>
-              </div>
-            </button>
-            <button type="button" className={`emp-stat-button${activeHeaderFilter === "all" ? " active" : ""}`} onClick={() => applyHeaderFilter("all")}>
-              <div className="emp-stat emp-stat-total">
-                <div className="emp-stat-copy">
-                  <div className="emp-stat-value">{employees.length}</div>
-                  <div className="emp-stat-label">{locale === "de" ? "Gesamt" : "Total"}</div>
-                </div>
-              </div>
-            </button>
+              </button>
+            )}
           </div>
         </div>
 
@@ -520,10 +513,7 @@ export function EmployeeManager({
           className="form-input emp-search-input"
           placeholder={messages.employees.searchPlaceholder}
           value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(1);
-          }}
+          onChange={(event) => setSearch(event.target.value)}
           title={messages.employees.searchTitle}
         />
         <UiSelect
@@ -534,28 +524,23 @@ export function EmployeeManager({
             const nextRole = value as "all" | EmployeeRole;
             setRoleFilter(nextRole);
             if (nextRole === "trainer") setStatusFilter("all");
-            setPage(1);
           }}
           title={messages.employees.roleFilterTitle}
         />
-        <UiSelect
-          className="emp-filter-select"
-          value={teamFilter}
-          options={teamFilterOptions}
-          onChange={(value) => {
-            setTeamFilter(value as "all" | EmployeeTeam);
-            setPage(1);
-          }}
-          title={messages.employees.teamFilterTitle}
-        />
+        {!lockedTeam && (
+          <UiSelect
+            className="emp-filter-select"
+            value={teamFilter}
+            options={teamFilterOptions}
+            onChange={(value) => setTeamFilter(value as "all" | EmployeeTeam)}
+            title={messages.employees.teamFilterTitle}
+          />
+        )}
         <UiSelect
           className="emp-filter-select"
           value={statusFilter}
           options={statusFilterOptions}
-          onChange={(value) => {
-            setStatusFilter(value as "all" | EmployeeProgressStatus);
-            setPage(1);
-          }}
+          onChange={(value) => setStatusFilter(value as "all" | EmployeeProgressStatus)}
           title={messages.employees.statusFilterTitle}
           disabled={roleFilter === "trainer"}
         />
@@ -563,21 +548,8 @@ export function EmployeeManager({
           className="emp-filter-select"
           value={sortBy}
           options={sortOptions}
-          onChange={(value) => {
-            setSortBy(value as "name_asc" | "name_desc" | "status" | "progress_desc");
-            setPage(1);
-          }}
+          onChange={(value) => setSortBy(value as "name_asc" | "name_desc" | "status" | "progress_desc")}
           title={messages.employees.sortTitle}
-        />
-        <UiSelect
-          className="emp-filter-select"
-          value={String(pageSize)}
-          options={pageSizeOptions}
-          onChange={(value) => {
-            setPageSize(Number(value));
-            setPage(1);
-          }}
-          title={messages.employees.pageSizeTitle}
         />
       </div>
 
@@ -606,7 +578,7 @@ export function EmployeeManager({
               </div>
               <div className="form-group">
                 <label className="form-label" htmlFor="employee-editor-team">{messages.employees.team}</label>
-                <UiSelect id="employee-editor-team" value={isCreateMode ? createTeam : editTeam} options={editorTeamOptions} onChange={(value) => isCreateMode ? setCreateTeam(value as EmployeeTeam) : setEditTeam(value as EmployeeTeam)} title={messages.employees.team} />
+                <UiSelect id="employee-editor-team" value={isCreateMode ? createTeam : editTeam} options={editorTeamOptions} onChange={(value) => isCreateMode ? setCreateTeam(value as EmployeeTeam) : setEditTeam(value as EmployeeTeam)} title={messages.employees.team} disabled={Boolean(lockedTeam)} />
               </div>
             </div>
             <div className="emp-edit-secondary-grid">
@@ -644,32 +616,19 @@ export function EmployeeManager({
             <img src={listLogo} alt={messages.employees.listTitle} className="emp-section-logo" />
             <div>
               <h2 className="emp-section-title">{messages.employees.listTitle}</h2>
-              <p className="text-sm text-sec">{filteredRows.length} {messages.employees.hitsLabel} - {filteredTrainerCount} {messages.common.roles.trainer} - {filteredCOpsCount} C-OPS - {filteredFOpsCount} F-OPS</p>
+              <p className="text-sm text-sec">{filteredRows.length} {messages.employees.hitsLabel} - {filteredTrainerCount} {messages.common.roles.trainer}{visibleTeamSummary ? ` - ${visibleTeamSummary}` : ""}</p>
             </div>
           </div>
           <div className="employee-list-header-meta">
-            <span className="badge badge-default">{currentPage}/{totalPages} {messages.employees.pageLabel}</span>
+            <span className="badge badge-default">{filteredRows.length} {messages.employees.hitsLabel}</span>
             <span className="badge badge-primary">{activeVisibleCount} {messages.employees.activeLabel}</span>
             <span className="badge badge-success">{completedVisibleCount} {messages.employees.completedLabel}</span>
           </div>
         </div>
         <div className="card-body flush emp-list-scroll">
           <div className="employee-list">
-            {pagedRows.map((row) => renderRow(row.employee, row.progressSummary))}
-            {pagedRows.length === 0 && <div className="empty-state emp-empty-state">{messages.employees.emptyFiltered}</div>}
-          </div>
-        </div>
-        <div className="card-body employee-list-pagination">
-          <span className="employee-list-pagination-copy">
-            {messages.employees.showingLabel} {filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} {messages.employees.toLabel} {Math.min(currentPage * pageSize, filteredRows.length)} {messages.employees.ofLabel} {filteredRows.length}
-          </span>
-          <div className="emp-row-actions">
-            <button className="btn btn-sm" onClick={() => setPage((value) => Math.max(value - 1, 1))} disabled={currentPage === 1}>
-              {messages.common.actions.back}
-            </button>
-            <button className="btn btn-sm" onClick={() => setPage((value) => Math.min(value + 1, totalPages))} disabled={currentPage === totalPages}>
-              {messages.common.actions.next}
-            </button>
+            {filteredRows.map((row) => renderRow(row.employee, row.progressSummary))}
+            {filteredRows.length === 0 && <div className="empty-state emp-empty-state">{messages.employees.emptyFiltered}</div>}
           </div>
         </div>
       </div>

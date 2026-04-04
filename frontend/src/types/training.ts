@@ -2,7 +2,7 @@ export type TemplateLanguage = "English" | "German";
 export type Team = "C-OPS" | "F-OPS";
 export type TemplateTeam = Team;
 export type EmployeeTeam = Team;
-export type SubmissionSendStatus = "draft" | "sent" | "send_failed";
+export type SubmissionSendStatus = "draft" | "completed" | "sent" | "send_failed";
 export type TrainingSessionStatus = "assigned" | "in_progress" | "paused" | "completed" | "delivered" | "cancelled";
 export type TrainingSessionDeliveryStatus = "pending" | "draft_saved" | "mail_prepared" | "sent" | "send_failed";
 
@@ -10,6 +10,8 @@ export interface AppSettings {
   defaultPrimaryRecipient: string;
   defaultCcMe: string;
   deliveryRecipients: string[];
+  deliveryEmailSubjectTemplate: string;
+  deliveryEmailBodyTemplate: string;
   smtpConfigured: boolean;
 }
 
@@ -39,6 +41,7 @@ export interface TrainerSession {
   lastName: string;
   name: string;
   email: string;
+  team: EmployeeTeam;
   createdAt: string;
   hasPin: boolean;
   mustChangePin: boolean;
@@ -134,6 +137,7 @@ export interface SubmissionResponse {
   ccRecipients: string[];
   sendStatus: SubmissionSendStatus;
   isComplete: boolean;
+  completedAt?: string;
 }
 
 export interface SubmissionListItem {
@@ -151,6 +155,7 @@ export interface SubmissionListItem {
   ccRecipients: string[];
   pdfPath: string;
   createdAt: string;
+  completedAt?: string;
   emailDelivered: boolean;
   emailMessage: string;
   sendStatus: SubmissionSendStatus;
@@ -163,5 +168,23 @@ export interface BatchSendResponse {
   count: number;
   emailDelivered: boolean;
   emailMessage: string;
+  sendStatus: SubmissionSendStatus;
+  completedAt?: string;
   sentAt?: string;
+}
+
+export interface MailDraftResponse {
+  to: string;
+  cc: string[];
+  subject: string;
+  text: string;
+}
+
+export interface ExportedPdfResponse {
+  fileName: string;
+  filePath: string;
+  completedAt?: string;
+  sendStatus: SubmissionSendStatus;
+  message: string;
+  count?: number;
 }

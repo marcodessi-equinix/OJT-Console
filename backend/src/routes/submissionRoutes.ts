@@ -1,24 +1,33 @@
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
-import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../config/env";
 import { submissionsRoot } from "../config/paths";
 import { getEmployeeById } from "../repositories/employeeRepository";
-import { getTemplateById } from "../repositories/templateRepository";
-import { attachSubmissionToTrainingSession, getTrainingSessionById } from "../repositories/trainingSessionRepository";
 import {
   getSubmissionById,
   insertSubmission,
   listSubmissions,
   updateSubmissionDeliveryResult
 } from "../repositories/submissionRepository";
-import { sendSubmissionBatchEmail, sendSubmissionEmail } from "../services/emailService";
-import { generateSubmissionPdf } from "../services/pdfService";
+import { getTemplateById } from "../repositories/templateRepository";
+import { attachSubmissionToTrainingSession, getTrainingSessionById } from "../repositories/trainingSessionRepository";
+import { buildSubmissionMailDraft, sendSubmissionEmail } from "../services/emailService";
+import { combineSubmissionPdfs, generateSubmissionPdf } from "../services/pdfService";
+import {
+  exportExistingPdfToDownloads,
+  exportPdfBufferToDownloads,
+  openOutlookDraftWithAttachment
+} from "../services/windowsIntegrationService";
 import type { StoredSubmission } from "../types/training";
-import { createSubmissionPdfDisplayName, createSubmissionPdfStorageName } from "../utils/pdfFileName";
+import {
+  createSubmissionBundlePdfDisplayName,
+  createSubmissionPdfDisplayName,
+  createSubmissionPdfStorageName
+} from "../utils/pdfFileName";
 import { uniqueEmails } from "../utils/text";
 
 const sectionReviewSchema = z.object({
@@ -48,11 +57,102 @@ const submissionSchema = z.object({
   sectionReviews: z.array(sectionReviewSchema).default([])
 });
 
+const selectionSchema = z.object({
+  employeeId: z.string().min(1),
+  submissionIds: z.array(z.string().min(1)).optional()
+});
+
 const sendBatchSchema = z.object({
   employeeId: z.string().min(1),
+  submissionIds: z.array(z.string().min(1)).optional(),
   primaryRecipient: z.email().optional(),
   additionalCc: z.array(z.email()).optional()
 });
+
+const mailDraftSchema = z.object({
+  employeeId: z.string().min(1),
+  submissionIds: z.array(z.string().min(1)).optional(),
+  primaryRecipient: z.email().optional(),
+  additionalCc: z.array(z.email()).optional()
+});
+
+function sortSubmissions(submissions: StoredSubmission[]): StoredSubmission[] {
+  return submissions.slice().sort((left, right) => left.templateTitle.localeCompare(right.templateTitle));
+}
+
+function getEmployeeSubmissionSelection(employeeId: string, submissionIds?: string[]): StoredSubmission[] {
+  const employeeSubmissions = listSubmissions({ employeeId })
+    .map((item) => getSubmissionById(item.id))
+    .filter((item): item is StoredSubmission => Boolean(item));
+
+  if (!submissionIds?.length) {
+    return sortSubmissions(employeeSubmissions);
+  }
+
+  const idSet = new Set(submissionIds);
+  const selected = employeeSubmissions.filter((submission) => idSet.has(submission.id));
+
+  if (selected.length !== idSet.size) {
+    throw new Error("One or more submissions do not belong to the selected employee.");
+  }
+
+  return sortSubmissions(selected);
+}
+
+async function regenerateSubmissionPdf(submission: StoredSubmission): Promise<void> {
+  const template = getTemplateById(submission.templateId);
+
+  if (!template) {
+    throw new Error(`Template ${submission.templateId} could not be loaded for PDF regeneration.`);
+  }
+
+  await generateSubmissionPdf(template, submission, submission.pdfPath);
+}
+
+async function regenerateSubmissionPdfs(submissions: StoredSubmission[]): Promise<void> {
+  for (const submission of submissions) {
+    await regenerateSubmissionPdf(submission);
+  }
+}
+
+async function markSubmissionCompleted(submission: StoredSubmission): Promise<string | undefined> {
+  if (submission.sendStatus === "sent") {
+    return submission.completedAt;
+  }
+
+  const completedAt = new Date().toISOString();
+  await updateSubmissionDeliveryResult({
+    id: submission.id,
+    sendStatus: "completed",
+    emailDelivered: submission.emailDelivered,
+    emailMessage: "PDF exported. Completion marked as done.",
+    completedAt,
+    sentAt: submission.sentAt
+  });
+
+  return completedAt;
+}
+
+async function markSubmissionsCompleted(submissions: StoredSubmission[]): Promise<string> {
+  const completedAt = new Date().toISOString();
+
+  for (const submission of submissions) {
+    if (submission.sendStatus === "sent") {
+      continue;
+    }
+
+    await updateSubmissionDeliveryResult({
+      id: submission.id,
+      sendStatus: "completed",
+      emailDelivered: submission.emailDelivered,
+      emailMessage: "PDF exported. Completion marked as done.",
+      completedAt,
+      sentAt: submission.sentAt
+    });
+  }
+
+  return completedAt;
+}
 
 export function createSubmissionRouter(): Router {
   const router = Router();
@@ -71,6 +171,8 @@ export function createSubmissionRouter(): Router {
         return;
       }
 
+      await regenerateSubmissionPdf(submission);
+
       try {
         await access(submission.pdfPath, constants.R_OK);
       } catch {
@@ -78,10 +180,37 @@ export function createSubmissionRouter(): Router {
         return;
       }
 
+      await markSubmissionCompleted(submission);
+
       response.download(submission.pdfPath, createSubmissionPdfDisplayName(submission), (error) => {
         if (error && !response.headersSent) {
           next(error);
         }
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/:submissionId/export", async (request, response, next) => {
+    try {
+      const submission = getSubmissionById(request.params.submissionId);
+      if (!submission) {
+        response.status(404).json({ message: "Submission not found." });
+        return;
+      }
+
+      await regenerateSubmissionPdf(submission);
+      const fileName = createSubmissionPdfDisplayName(submission);
+      const filePath = await exportExistingPdfToDownloads(submission.pdfPath, fileName);
+      const completedAt = await markSubmissionCompleted(submission);
+
+      response.json({
+        fileName,
+        filePath,
+        completedAt,
+        sendStatus: submission.sendStatus === "sent" ? "sent" : "completed",
+        message: "PDF saved to Downloads."
       });
     } catch (error) {
       next(error);
@@ -170,6 +299,7 @@ export function createSubmissionRouter(): Router {
         sectionReviews: parsed.sectionReviews,
         pdfPath,
         createdAt,
+        completedAt: undefined,
         ccRecipients,
         emailDelivered: false,
         emailMessage: "",
@@ -190,38 +320,22 @@ export function createSubmissionRouter(): Router {
         ? "Completion saved. PDF ready for download."
         : "Draft saved as incomplete.";
 
-      try {
-        await generateSubmissionPdf(template, submission, pdfPath);
-      } catch (error) {
-        console.error("Submission PDF generation failed", {
-          submissionId,
-          templateId: template.id,
-          employeeId: employee.id,
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
-        });
-        throw error;
-      }
+      await generateSubmissionPdf(template, submission, pdfPath);
 
       if (parsed.deliveryMode === "send") {
-        const mailResult = await sendSubmissionEmail(submission, pdfPath);
+        const mailResult = await sendSubmissionEmail({
+          submissions: [submission],
+          primaryRecipient: submission.primaryRecipient,
+          ccRecipients: submission.ccRecipients
+        });
         submission.emailDelivered = mailResult.delivered;
         submission.emailMessage = mailResult.message;
         submission.sendStatus = mailResult.delivered ? "sent" : "send_failed";
+        submission.completedAt = mailResult.delivered ? new Date().toISOString() : undefined;
         submission.sentAt = mailResult.delivered ? new Date().toISOString() : undefined;
       }
 
-      try {
-        await insertSubmission(submission);
-      } catch (error) {
-        console.error("Submission persistence failed", {
-          submissionId,
-          trainingSessionId: parsed.trainingSessionId,
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
-        });
-        throw error;
-      }
+      await insertSubmission(submission);
 
       if (parsed.trainingSessionId) {
         await attachSubmissionToTrainingSession(parsed.trainingSessionId, {
@@ -239,7 +353,8 @@ export function createSubmissionRouter(): Router {
         emailMessage: submission.emailMessage,
         ccRecipients: submission.ccRecipients,
         sendStatus: submission.sendStatus,
-        isComplete: Boolean(submission.isComplete)
+        isComplete: Boolean(submission.isComplete),
+        completedAt: submission.completedAt
       });
     } catch (error) {
       next(error);
@@ -254,15 +369,23 @@ export function createSubmissionRouter(): Router {
         return;
       }
 
-      const mailResult = await sendSubmissionEmail(submission, submission.pdfPath);
+      await regenerateSubmissionPdf(submission);
+
+      const mailResult = await sendSubmissionEmail({
+        submissions: [submission],
+        primaryRecipient: submission.primaryRecipient,
+        ccRecipients: submission.ccRecipients
+      });
       const nextStatus = mailResult.delivered ? "sent" : "send_failed";
-      const sentAt = mailResult.delivered ? new Date().toISOString() : undefined;
+      const completedAt = mailResult.delivered ? new Date().toISOString() : submission.completedAt;
+      const sentAt = mailResult.delivered ? completedAt : undefined;
 
       await updateSubmissionDeliveryResult({
         id: submission.id,
         sendStatus: nextStatus,
         emailDelivered: mailResult.delivered,
         emailMessage: mailResult.message,
+        completedAt,
         sentAt
       });
 
@@ -278,7 +401,165 @@ export function createSubmissionRouter(): Router {
         emailDelivered: mailResult.delivered,
         emailMessage: mailResult.message,
         sendStatus: nextStatus,
+        completedAt,
         sentAt
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/bundle-pdf", async (request, response, next) => {
+    try {
+      const parsed = selectionSchema.parse(request.body);
+      const employee = getEmployeeById(parsed.employeeId);
+      if (!employee) {
+        response.status(404).json({ message: "Employee not found." });
+        return;
+      }
+
+      const submissions = getEmployeeSubmissionSelection(parsed.employeeId, parsed.submissionIds);
+      if (!submissions.length) {
+        response.status(400).json({ message: "No submissions available for this employee." });
+        return;
+      }
+
+      await regenerateSubmissionPdfs(submissions);
+      const pdfBytes = await combineSubmissionPdfs(submissions.map((submission) => submission.pdfPath));
+      await markSubmissionsCompleted(submissions);
+
+      response.setHeader("Content-Type", "application/pdf");
+      response.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${createSubmissionBundlePdfDisplayName({ employeeName: employee.name })}"`
+      );
+      response.send(Buffer.from(pdfBytes));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/bundle-export", async (request, response, next) => {
+    try {
+      const parsed = selectionSchema.parse(request.body);
+      const employee = getEmployeeById(parsed.employeeId);
+      if (!employee) {
+        response.status(404).json({ message: "Employee not found." });
+        return;
+      }
+
+      const submissions = getEmployeeSubmissionSelection(parsed.employeeId, parsed.submissionIds);
+      if (!submissions.length) {
+        response.status(400).json({ message: "No submissions available for this employee." });
+        return;
+      }
+
+      await regenerateSubmissionPdfs(submissions);
+      const pdfBytes = await combineSubmissionPdfs(submissions.map((submission) => submission.pdfPath));
+      const fileName = createSubmissionBundlePdfDisplayName({ employeeName: employee.name });
+      const filePath = await exportPdfBufferToDownloads(fileName, Buffer.from(pdfBytes));
+      const completedAt = await markSubmissionsCompleted(submissions);
+
+      response.json({
+        fileName,
+        filePath,
+        count: submissions.length,
+        completedAt,
+        sendStatus: submissions.every((submission) => submission.sendStatus === "sent") ? "sent" : "completed",
+        message: "Bundle PDF saved to Downloads."
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/mail-draft", (request, response, next) => {
+    try {
+      const parsed = mailDraftSchema.parse(request.body);
+      const employee = getEmployeeById(parsed.employeeId);
+      if (!employee) {
+        response.status(404).json({ message: "Employee not found." });
+        return;
+      }
+
+      const submissions = getEmployeeSubmissionSelection(parsed.employeeId, parsed.submissionIds);
+      if (!submissions.length) {
+        response.status(400).json({ message: "No submissions available for this employee." });
+        return;
+      }
+
+      const primaryRecipient = parsed.primaryRecipient ?? submissions[0].primaryRecipient;
+      const ccRecipients = uniqueEmails([
+        ...submissions.flatMap((submission) => submission.ccRecipients),
+        ...(parsed.additionalCc ?? [])
+      ]);
+
+      response.json(buildSubmissionMailDraft({
+        primaryRecipient,
+        ccRecipients,
+        submissions
+      }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/outlook-draft", async (request, response, next) => {
+    try {
+      const parsed = mailDraftSchema.parse(request.body);
+      const employee = getEmployeeById(parsed.employeeId);
+      if (!employee) {
+        response.status(404).json({ message: "Employee not found." });
+        return;
+      }
+
+      const submissions = getEmployeeSubmissionSelection(parsed.employeeId, parsed.submissionIds);
+      if (!submissions.length) {
+        response.status(400).json({ message: "No submissions available for this employee." });
+        return;
+      }
+
+      await regenerateSubmissionPdfs(submissions);
+
+      const primaryRecipient = parsed.primaryRecipient ?? submissions[0].primaryRecipient;
+      const ccRecipients = uniqueEmails([
+        ...submissions.flatMap((submission) => submission.ccRecipients),
+        ...(parsed.additionalCc ?? [])
+      ]);
+      const draft = buildSubmissionMailDraft({
+        primaryRecipient,
+        ccRecipients,
+        submissions
+      });
+
+      let fileName = "";
+      let attachmentPath = "";
+
+      if (submissions.length === 1) {
+        fileName = createSubmissionPdfDisplayName(submissions[0]);
+        attachmentPath = await exportExistingPdfToDownloads(submissions[0].pdfPath, fileName);
+      } else {
+        const mergedPdf = await combineSubmissionPdfs(submissions.map((submission) => submission.pdfPath));
+        fileName = createSubmissionBundlePdfDisplayName({ employeeName: employee.name });
+        attachmentPath = await exportPdfBufferToDownloads(fileName, Buffer.from(mergedPdf));
+      }
+
+      const completedAt = await markSubmissionsCompleted(submissions);
+      await openOutlookDraftWithAttachment({
+        to: draft.to,
+        cc: draft.cc,
+        subject: draft.subject,
+        body: draft.text,
+        attachmentPath
+      });
+
+      response.json({
+        fileName,
+        filePath: attachmentPath,
+        count: submissions.length,
+        completedAt,
+        sendStatus: submissions.every((submission) => submission.sendStatus === "sent") ? "sent" : "completed",
+        message: "Outlook draft opened with the PDF attached."
       });
     } catch (error) {
       next(error);
@@ -294,17 +575,17 @@ export function createSubmissionRouter(): Router {
         return;
       }
 
-      const drafts = listSubmissions({ employeeId: parsed.employeeId, sendStatus: "draft" })
-        .map((item) => getSubmissionById(item.id))
-        .filter((item): item is StoredSubmission => Boolean(item));
+      const drafts = getEmployeeSubmissionSelection(parsed.employeeId, parsed.submissionIds)
+        .filter((submission) => submission.sendStatus !== "sent");
 
       if (!drafts.length) {
-        response.status(400).json({ message: "No draft submissions available for this employee." });
+        response.status(400).json({ message: "No open submissions available for this employee." });
         return;
       }
 
-      const primaryRecipient = parsed.primaryRecipient ?? drafts[0].primaryRecipient;
+      await regenerateSubmissionPdfs(drafts);
 
+      const primaryRecipient = parsed.primaryRecipient ?? drafts[0].primaryRecipient;
       if (!primaryRecipient.trim()) {
         response.status(400).json({ message: "Primary recipient is required for batch send." });
         return;
@@ -316,20 +597,26 @@ export function createSubmissionRouter(): Router {
         ...(parsed.additionalCc ?? [])
       ]);
 
-      const mailResult = await sendSubmissionBatchEmail({
-        employeeName: employee.name,
+      const mergedPdf = await combineSubmissionPdfs(drafts.map((draft) => draft.pdfPath));
+      const mailResult = await sendSubmissionEmail({
+        submissions: drafts,
         primaryRecipient,
         ccRecipients,
-        submissions: drafts
+        attachment: {
+          fileName: createSubmissionBundlePdfDisplayName({ employeeName: employee.name }),
+          content: Buffer.from(mergedPdf)
+        }
       });
 
       const sentAt = mailResult.delivered ? new Date().toISOString() : undefined;
+      const completedAt = mailResult.delivered ? sentAt : undefined;
       for (const draft of drafts) {
         await updateSubmissionDeliveryResult({
           id: draft.id,
           sendStatus: mailResult.delivered ? "sent" : "send_failed",
           emailDelivered: mailResult.delivered,
           emailMessage: mailResult.message,
+          completedAt,
           sentAt
         });
       }
@@ -339,6 +626,8 @@ export function createSubmissionRouter(): Router {
         count: drafts.length,
         emailDelivered: mailResult.delivered,
         emailMessage: mailResult.message,
+        sendStatus: mailResult.delivered ? "sent" : "send_failed",
+        completedAt,
         sentAt
       });
     } catch (error) {

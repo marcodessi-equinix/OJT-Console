@@ -1,12 +1,18 @@
 import nodemailer from "nodemailer";
 import { env, smtpConfigured } from "../config/env";
+import { readDeliverySettings } from "../repositories/settingsRepository";
 import type { StoredSubmission } from "../types/training";
-import { createSubmissionPdfDisplayName } from "../utils/pdfFileName";
+import { createSubmissionBundlePdfDisplayName, createSubmissionPdfDisplayName } from "../utils/pdfFileName";
 
 interface MailAttachment {
   filename: string;
-  path: string;
+  path?: string;
+  content?: Buffer;
   contentType: string;
+}
+
+function normalizeModuleTitle(title: string): string {
+  return title.replace(/\s*(?:[-_–—]\s*|\(\s*|\[\s*)?(english|german|englisch|deutsch)(?:\s*[)\]])?\s*$/i, "").trim();
 }
 
 async function sendMail(options: {
@@ -45,51 +51,78 @@ async function sendMail(options: {
   };
 }
 
-export async function sendSubmissionEmail(
-  submission: StoredSubmission,
-  pdfAbsolutePath: string
-): Promise<{ delivered: boolean; message: string }> {
-  return sendMail({
-    to: submission.primaryRecipient,
-    cc: submission.ccRecipients,
-    subject: `OJT Completion - ${submission.templateTitle} - ${submission.employeeName}`,
-    text: [
-      `Training: ${submission.templateTitle}`,
-      `Employee: ${submission.employeeName} <${submission.employeeEmail}>`,
-      `Trainer: ${submission.trainerName} <${submission.trainerEmail}>`,
-      `Submitted: ${submission.createdAt}`,
-      "",
-      submission.notes ?? "No additional notes."
-    ].join("\n"),
-    attachments: [
-      {
-        filename: createSubmissionPdfDisplayName(submission),
-        path: pdfAbsolutePath,
-        contentType: "application/pdf"
-      }
-    ]
-  });
+function renderMailTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/{{\s*([a-zA-Z0-9]+)\s*}}/g, (_match, key: string) => values[key] ?? "");
 }
 
-export async function sendSubmissionBatchEmail(input: {
-  employeeName: string;
+export function buildSubmissionMailDraft(input: {
   primaryRecipient: string;
   ccRecipients: string[];
   submissions: StoredSubmission[];
-}): Promise<{ delivered: boolean; message: string }> {
-  return sendMail({
+}): { to: string; cc: string[]; subject: string; text: string } {
+  const settings = readDeliverySettings();
+  const firstSubmission = input.submissions[0];
+  const trainerName = Array.from(new Set(input.submissions.map((submission) => submission.trainerName).filter(Boolean))).join(", ");
+  const trainerEmail = Array.from(new Set(input.submissions.map((submission) => submission.trainerEmail).filter(Boolean))).join(", ");
+  const moduleList = input.submissions
+    .map((submission) => `- ${normalizeModuleTitle(submission.templateTitle)}`)
+    .join("\n");
+  const values = {
+    employeeName: firstSubmission?.employeeName ?? "",
+    employeeEmail: firstSubmission?.employeeEmail ?? "",
+    trainerName,
+    trainerEmail,
+    templateTitle: input.submissions.length === 1 ? normalizeModuleTitle(firstSubmission?.templateTitle ?? "") : `${input.submissions.length} modules`,
+    moduleCount: String(input.submissions.length),
+    moduleList,
+    primaryRecipient: input.primaryRecipient,
+    ccRecipients: input.ccRecipients.join("; ")
+  };
+
+  return {
     to: input.primaryRecipient,
     cc: input.ccRecipients,
-    subject: `OJT Completion Bundle - ${input.employeeName}`,
-    text: [
-      `${input.submissions.length} OJT records are attached for ${input.employeeName}.`,
-      "",
-      ...input.submissions.map((submission) => `- ${submission.templateTitle} (${submission.language})`)
-    ].join("\n"),
-    attachments: input.submissions.map((submission) => ({
-      filename: createSubmissionPdfDisplayName(submission),
-      path: submission.pdfPath,
-      contentType: "application/pdf"
-    }))
+    subject: renderMailTemplate(settings.deliveryEmailSubjectTemplate, values),
+    text: renderMailTemplate(settings.deliveryEmailBodyTemplate, values)
+  };
+}
+
+export async function sendSubmissionEmail(input: {
+  submissions: StoredSubmission[];
+  primaryRecipient: string;
+  ccRecipients: string[];
+  attachment?: { fileName: string; content: Buffer };
+}): Promise<{ delivered: boolean; message: string }> {
+  const draft = buildSubmissionMailDraft({
+    primaryRecipient: input.primaryRecipient,
+    ccRecipients: input.ccRecipients,
+    submissions: input.submissions
+  });
+  const firstSubmission = input.submissions[0];
+  const singleAttachment = input.submissions.length === 1 && firstSubmission
+    ? {
+        filename: createSubmissionPdfDisplayName(firstSubmission),
+        path: firstSubmission.pdfPath,
+        contentType: "application/pdf"
+      }
+    : undefined;
+  const bundleAttachment = input.attachment
+    ? {
+        filename: input.attachment.fileName,
+        content: input.attachment.content,
+        contentType: "application/pdf"
+      }
+    : undefined;
+
+  return sendMail({
+    to: draft.to,
+    cc: draft.cc,
+    subject: draft.subject,
+    text: draft.text,
+    attachments: bundleAttachment
+      ? [bundleAttachment]
+      : (singleAttachment
+        ? [singleAttachment]
+        : [])
   });
 }
