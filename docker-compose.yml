@@ -43,6 +43,10 @@ services:
           selinux: z
     expose:
       - "4000"
+    networks:
+      npm_proxy:
+        aliases:
+          - backend
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
@@ -61,9 +65,18 @@ services:
       - backend
     ports:
       - "${FRONTEND_PORT:-9130}:80"
+    networks:
+      npm_proxy:
+        aliases:
+          - frontend
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ > /dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 10s
+
+networks:
+  npm_proxy:
+    external: true
+    name: ${NPM_NETWORK:-npm_default}

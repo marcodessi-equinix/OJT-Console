@@ -132,11 +132,14 @@ Mindestens diese Variablen solltest du im Stack setzen:
 BACKEND_DATA_PATH=/srv/ojt-console/data
 ENGLISH_DOCUMENTS_SOURCE=/srv/ojt-documents/English
 GERMAN_DOCUMENTS_SOURCE=/srv/ojt-documents/German
+NPM_NETWORK=npm_default
 FRONTEND_PORT=9130
 ADMIN_IDENTIFIER=admin
 ADMIN_NAME=OJT Admin
 ADMIN_PIN=1234
 ```
+
+`NPM_NETWORK` muss dem bereits existierenden gemeinsamen Netzwerk von Nginx Proxy Manager und dieser App entsprechen. Beide Services, `frontend` und `backend`, werden darueber verbunden. Der Backend-Service bleibt trotzdem ohne Host-Port und wird nur intern ueber den Service-Alias `backend:4000` erreicht.
 
 Optional je nach Versand:
 
@@ -160,6 +163,13 @@ SMTP_PASS=
 5. Umgebungsvariablen aus [stack.env.example](stack.env.example) oder manuell pflegen.
 6. Deploy ausfuehren.
 7. Anwendung ueber `http://<server>:<FRONTEND_PORT>` aufrufen.
+
+### NPM-Topologie
+
+- Nginx Proxy Manager und beide App-Container muessen im selben externen Netzwerk sein.
+- NPM sollte auf den Service `frontend` Port `80` zeigen.
+- Das Frontend leitet `/api/*` intern an `backend:4000` weiter.
+- Der Backend-Service braucht keinen veroeffentlichten Host-Port.
 
 ### Was du beim ersten Stack-Deploy beachten musst
 
