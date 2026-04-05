@@ -5,6 +5,7 @@ export type EmployeeTeam = Team;
 export type SubmissionSendStatus = "draft" | "completed" | "sent" | "send_failed";
 export type TrainingSessionStatus = "assigned" | "in_progress" | "paused" | "completed" | "delivered" | "cancelled";
 export type TrainingSessionDeliveryStatus = "pending" | "draft_saved" | "mail_prepared" | "sent" | "send_failed";
+export type ModuleRegistrationStatus = "pending" | "completed";
 
 export type EmployeeRole = "employee" | "trainer";
 
@@ -60,6 +61,39 @@ export interface TrainingTemplateSummary {
 
 export interface TrainingTemplate extends TrainingTemplateSummary {
   sections: TrainingSection[];
+}
+
+export interface ModuleRegistrationInput {
+  employeeId: string;
+  templateId: string;
+}
+
+export interface ModuleRegistrationBatchInput {
+  employeeId: string;
+  templateIds: string[];
+}
+
+export interface ModuleRegistration {
+  id: string;
+  employeeId: string;
+  templateId: string;
+  moduleKey: string;
+  moduleTitle: string;
+  team: EmployeeTeam;
+  createdAt: string;
+  completedAt?: string;
+  status: ModuleRegistrationStatus;
+}
+
+export interface ModuleRegistrationListItem extends ModuleRegistration {
+  employeeName: string;
+  employeeEmail: string;
+  templateLanguage: TemplateLanguage;
+}
+
+export interface ModuleRegistrationBatchResult {
+  created: number;
+  registrations: ModuleRegistration[];
 }
 
 export interface SectionReview {

@@ -1,8 +1,8 @@
 ﻿import { memo } from "react";
-import { IconUsers, IconFile, IconSend, IconDashboard, IconInfo } from "./Icons";
+import { IconUsers, IconFile, IconSend, IconDashboard, IconInfo, IconClipboardList } from "./Icons";
 import { useLanguage } from "../features/language/LanguageProvider";
 
-export type AppView = "dashboard" | "info" | "employees" | "documents" | "delivery";
+export type AppView = "dashboard" | "info" | "employees" | "documents" | "training" | "delivery";
 
 interface Props {
   currentView: AppView;
@@ -19,6 +19,7 @@ export const AppSidebar = memo(function AppSidebar({ currentView, collapsed, vis
     { id: "info", icon: <IconInfo />, label: messages.shell.viewTitles.info },
     { id: "employees", icon: <IconUsers />, label: messages.shell.viewTitles.employees },
     { id: "documents", icon: <IconFile />, label: messages.shell.viewTitles.documents },
+    { id: "training", icon: <IconClipboardList />, label: messages.shell.viewTitles.training },
     { id: "delivery", icon: <IconSend />, label: messages.shell.viewTitles.delivery }
   ];
   const navItems = allNavItems.filter((item) => visibleViews.includes(item.id));

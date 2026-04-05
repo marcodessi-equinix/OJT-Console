@@ -5,6 +5,9 @@ import type {
   EmployeeProfile,
   ExportedPdfResponse,
   MailDraftResponse,
+  ModuleRegistrationBatchResult,
+  ModuleRegistration,
+  ModuleRegistrationListItem,
   SubmissionListItem,
   SubmissionPayload,
   SubmissionResponse,
@@ -191,6 +194,54 @@ export function updateTrainerProfile(
 export function fetchTrainingSessions(employeeId?: string): Promise<TrainingSessionListItem[]> {
   const query = employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : "";
   return request<TrainingSessionListItem[]>(`/training-sessions${query}`);
+}
+
+export function fetchModuleRegistrations(filter?: {
+  employeeId?: string;
+  team?: "C-OPS" | "F-OPS";
+  moduleKey?: string;
+  status?: "pending" | "completed";
+}): Promise<ModuleRegistrationListItem[]> {
+  const params = new URLSearchParams();
+
+  if (filter?.employeeId) {
+    params.set("employeeId", filter.employeeId);
+  }
+
+  if (filter?.team) {
+    params.set("team", filter.team);
+  }
+
+  if (filter?.moduleKey) {
+    params.set("moduleKey", filter.moduleKey);
+  }
+
+  if (filter?.status) {
+    params.set("status", filter.status);
+  }
+
+  const query = params.size ? `?${params.toString()}` : "";
+  return request<ModuleRegistrationListItem[]>(`/module-registrations${query}`);
+}
+
+export function createModuleRegistration(payload: {
+  employeeId: string;
+  templateId: string;
+}): Promise<ModuleRegistration> {
+  return request<ModuleRegistration>("/module-registrations", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function createModuleRegistrations(payload: {
+  employeeId: string;
+  templateIds: string[];
+}): Promise<ModuleRegistrationBatchResult> {
+  return request<ModuleRegistrationBatchResult>("/module-registrations/batch", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export function fetchTrainingSession(sessionId: string): Promise<TrainingSession> {

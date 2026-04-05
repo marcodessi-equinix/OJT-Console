@@ -6,9 +6,11 @@ import { env } from "./config/env";
 import { appDatabase } from "./db/database";
 import { createEmployeeRouter } from "./routes/employeeRoutes";
 import { createSettingsRouter } from "./routes/settingsRoutes";
+import { createModuleRegistrationRouter } from "./routes/moduleRegistrationRoutes";
 import { createSubmissionRouter } from "./routes/submissionRoutes";
 import { createTemplateRouter } from "./routes/templateRoutes";
 import { createTrainerRouter } from "./routes/trainerRoutes";
+import { createTrainingSessionRouter } from "./routes/trainingSessionRoutes";
 import { ensureTrainerDefaultPins } from "./repositories/employeeRepository";
 import { syncTemplatesFromDocuments } from "./services/docxTemplateService";
 
@@ -59,6 +61,8 @@ async function bootstrap(): Promise<void> {
   app.use("/api/trainers", createTrainerRouter());
   app.use("/api/settings", createSettingsRouter());
   app.use("/api/templates", createTemplateRouter());
+  app.use("/api/training-sessions", createTrainingSessionRouter());
+  app.use("/api/module-registrations", createModuleRegistrationRouter());
   app.use("/api/submissions", createSubmissionRouter());
 
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {

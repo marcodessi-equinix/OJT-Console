@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   bulkCreateEmployees,
+  createModuleRegistrations,
   createEmployee,
   deleteEmployee as apiDeleteEmployee,
   fetchEmployees,
+  fetchModuleRegistrations,
   fetchSettings,
   fetchSubmissionBundlePdf,
   fetchSubmissionPdf,
@@ -26,6 +28,7 @@ import { DeliveryWorkspace } from "./components/DeliveryWorkspace";
 import { EmployeeManager } from "./components/EmployeeManager";
 import { LanguageToggle } from "./components/LanguageToggle";
 import { ProgramInfo } from "./components/ProgramInfo";
+import { RegistrationWorkspace } from "./components/RegistrationWorkspace";
 import { SessionPanel } from "./components/SessionPanel";
 import { TemplateCatalog } from "./components/TemplateCatalog";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -39,6 +42,7 @@ import type {
   EmployeeProfile,
   EmployeeRole,
   EmployeeTeam,
+  ModuleRegistrationListItem,
   SectionReview,
   SubmissionListItem,
   SubmissionSendStatus,
@@ -60,7 +64,7 @@ const selectedEmployeeStorageKey = "ojt.selectedEmployeeId";
 const selectedTemplateStorageKey = "ojt.selectedTemplateId";
 const allTeams: EmployeeTeam[] = ["C-OPS", "F-OPS"];
 
-const validViews: AppView[] = ["dashboard", "info", "employees", "documents", "delivery"];
+const validViews: AppView[] = ["dashboard", "info", "employees", "documents", "training", "delivery"];
 const publicViews: AppView[] = ["info"];
 
 function getViewFromPath(): AppView {
@@ -125,6 +129,7 @@ export default function App() {
   const [templates, setTemplates] = useState<TrainingTemplateSummary[]>([]);
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [allSubmissions, setAllSubmissions] = useState<SubmissionListItem[]>([]);
+  const [moduleRegistrations, setModuleRegistrations] = useState<ModuleRegistrationListItem[]>([]);
   const [settings, setSettings] = useState<AppSettings>(emptySettings);
   const [activeAdmin, setActiveAdmin] = useLocalStorageState<AdminSession | null>("ojt.activeAdmin", null);
   const [activeTrainer, setActiveTrainer] = useLocalStorageState<TrainerSession | null>("ojt.activeTrainer", null);
@@ -147,6 +152,10 @@ export default function App() {
   const [adminSettingsBusy, setAdminSettingsBusy] = useState(false);
   const [adminSettingsError, setAdminSettingsError] = useState<string | null>(null);
   const [adminSettingsMessage, setAdminSettingsMessage] = useState<string | null>(null);
+  const [registrationBusy, setRegistrationBusy] = useState(false);
+  const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
+  const [registrationModalOpen, setRegistrationModalOpen] = useState(false);
+  const [registrationConfirmMessage, setRegistrationConfirmMessage] = useState<string | null>(null);
   const [deliveryForm, setDeliveryForm] = useState({
     trainerName: "",
     trainerEmail: "",
@@ -285,10 +294,12 @@ export default function App() {
           fetchEmployees(),
           fetchSubmissions()
         ]);
+        const nextRegistrations = await fetchModuleRegistrations();
         setSettings(nextSettings);
         setTemplates(nextTemplates);
         setEmployees(nextEmployees);
         setAllSubmissions(nextSubmissions);
+        setModuleRegistrations(nextRegistrations);
         setDeliveryForm((current) => ({
           ...current,
           primaryRecipient: current.primaryRecipient || nextSettings.defaultPrimaryRecipient
@@ -475,6 +486,32 @@ export default function App() {
     setAllSubmissions(await fetchSubmissions());
   }, []);
 
+  const refreshModuleRegistrations = useCallback(async (): Promise<void> => {
+    setModuleRegistrations(await fetchModuleRegistrations());
+  }, []);
+
+  const openRegistrationModal = useCallback((): void => {
+    setSelectedEmployeeId("");
+    setSelectedTemplateId("");
+    setRegistrationMessage(null);
+    setActionError(null);
+    setRegistrationModalOpen(true);
+  }, []);
+
+  const closeRegistrationModal = useCallback((): void => {
+    setRegistrationModalOpen(false);
+    setSelectedEmployeeId("");
+    setSelectedTemplateId("");
+    setRegistrationMessage(null);
+    setRegistrationConfirmMessage(null);
+    setActionError(null);
+  }, []);
+
+  const acknowledgeRegistrationConfirm = useCallback((): void => {
+    closeRegistrationModal();
+    navigate("info");
+  }, [closeRegistrationModal, navigate]);
+
   const refreshTemplates = useCallback(async (): Promise<void> => {
     const nextTemplates = await fetchTemplates();
     setTemplates(nextTemplates);
@@ -590,6 +627,16 @@ export default function App() {
     navigate("delivery");
   }, [navigate]);
 
+  const handleOpenDeliveryForModule = useCallback((employeeId: string, templateId?: string) => {
+    setSelectedEmployeeId(employeeId);
+    if (templateId) {
+      setSelectedTemplateId(templateId);
+    }
+    setActionError(null);
+    setLastResult(null);
+    navigate("delivery");
+  }, [navigate]);
+
   const handleDeliveryEmployeeSelect = useCallback((employeeId: string): void => {
     setSelectedEmployeeId(employeeId);
     setActionError(null);
@@ -638,6 +685,7 @@ export default function App() {
         sectionReviews: buildCompletedReviews(selectedTemplate)
       });
       await refreshSubmissions();
+      await refreshModuleRegistrations();
       setLastResult({
         count: 1,
         emailDelivered: result.emailDelivered,
@@ -650,6 +698,36 @@ export default function App() {
       setSavingDraft(false);
     }
   }, [activeAdmin?.name, activeTrainer?.email, activeTrainer?.name, deliveryForm.primaryRecipient, deliveryForm.trainerEmail, deliveryForm.trainerName, locale, messages.app.selectEmployeeAndDocument, messages.app.submissionFailed, refreshSubmissions, selectedEmployee, selectedTemplate, submissions]);
+
+  const handleCreateModuleRegistration = useCallback(async (payload: { employeeId: string; templateIds: string[] }): Promise<void> => {
+    try {
+      setRegistrationBusy(true);
+      setRegistrationMessage(null);
+      setActionError(null);
+      const result = await createModuleRegistrations(payload);
+      await refreshModuleRegistrations();
+      const moduleCount = result.registrations.length;
+      const nextMessage = hasPrivilegedAccess
+        ? (locale === "de"
+          ? `${moduleCount} Modul${moduleCount === 1 ? "" : "e"} wurde${moduleCount === 1 ? "" : "n"} angemeldet.`
+          : `${moduleCount} module${moduleCount === 1 ? "" : "s"} registered successfully.`)
+        : (locale === "de"
+          ? `Deine Anmeldung ist raus. ${moduleCount} Modul${moduleCount === 1 ? "" : "e"} wurde${moduleCount === 1 ? "" : "n"} erfasst. Ein Trainer wird sich bei dir melden.`
+          : `Your registration has been submitted. ${moduleCount} module${moduleCount === 1 ? "" : "s"} were recorded. A trainer will contact you.`);
+
+      if (hasPrivilegedAccess) {
+        setRegistrationMessage(nextMessage);
+      } else {
+        setRegistrationConfirmMessage(nextMessage);
+      }
+
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : (locale === "de" ? "Anmeldung fehlgeschlagen." : "Registration failed."));
+      throw err instanceof Error ? err : new Error(String(err));
+    } finally {
+      setRegistrationBusy(false);
+    }
+  }, [hasPrivilegedAccess, locale, refreshModuleRegistrations]);
 
   const handleSendBatch = useCallback(async (employeeId: string, submissionIds?: string[]): Promise<void> => {
     const employee = employees.find((item) => item.id === employeeId);
@@ -701,7 +779,7 @@ export default function App() {
     }
 
     if (effectiveView === "info") {
-      return <ProgramInfo />;
+      return <ProgramInfo onOpenRegistration={!hasPrivilegedAccess ? openRegistrationModal : undefined} />;
     }
 
     if (effectiveView === "employees") {
@@ -732,6 +810,29 @@ export default function App() {
           canManageTemplates={hasAdminAccess}
           visibleTeams={visibleTeams}
           onRefresh={refreshTemplates}
+        />
+      );
+    }
+
+    if (effectiveView === "training") {
+      return (
+        <RegistrationWorkspace
+          employees={scopedEmployees}
+          templates={scopedTemplates}
+          submissions={scopedSubmissions}
+          registrations={hasAdminAccess ? moduleRegistrations : trainerScopeTeam ? moduleRegistrations.filter((item) => item.team === trainerScopeTeam) : moduleRegistrations}
+          visibleTeams={visibleTeams}
+          lockedTeam={trainerScopeTeam}
+          hasPrivilegedAccess={hasPrivilegedAccess}
+          selectedEmployeeId={selectedEmployeeId}
+          selectedTemplateId={selectedTemplateId}
+          busy={registrationBusy}
+          message={registrationMessage}
+          error={actionError}
+          onSelectEmployee={setSelectedEmployeeId}
+          onSelectTemplate={setSelectedTemplateId}
+          onCreateRegistration={handleCreateModuleRegistration}
+          onOpenDelivery={handleOpenDeliveryForModule}
         />
       );
     }
@@ -773,7 +874,7 @@ export default function App() {
     }
 
     return null;
-  }, [actionError, activeTrainer, adminSettingsBusy, adminSettingsError, adminSettingsMessage, createSubmission, deliveryForm, deliveryTemplates, effectiveView, handleAdminSettingsSave, handleBulkImportEmployees, handleCreateEmployee, handleDeleteEmployee, handleDeliveryEmployeeSelect, handleDeliveryTemplateSelect, handleDownloadBundle, handleDownloadPdf, handleOpenDelivery, handleOpenMailDraft, handleSendBatch, handleUpdateEmployee, hasAdminAccess, hasPrivilegedAccess, lastResult, refreshTemplates, savingDraft, scopedEmployees, scopedSubmissions, scopedTemplates, selectedEmployee, selectedEmployeeId, selectedTemplateId, selectedTemplateSummary, sendingBatch, settings, updateDeliveryField, visibleTeams]);
+  }, [actionError, activeTrainer, adminSettingsBusy, adminSettingsError, adminSettingsMessage, createSubmission, deliveryForm, deliveryTemplates, effectiveView, employees, handleAdminSettingsSave, handleBulkImportEmployees, handleCreateEmployee, handleCreateModuleRegistration, handleDeleteEmployee, handleDeliveryEmployeeSelect, handleDeliveryTemplateSelect, handleDownloadBundle, handleDownloadPdf, handleOpenDelivery, handleOpenDeliveryForModule, handleOpenMailDraft, handleSendBatch, handleUpdateEmployee, hasAdminAccess, hasPrivilegedAccess, lastResult, moduleRegistrations, openRegistrationModal, refreshTemplates, registrationBusy, registrationMessage, savingDraft, scopedEmployees, scopedSubmissions, scopedTemplates, selectedEmployee, selectedEmployeeId, selectedTemplateId, selectedTemplateSummary, sendingBatch, settings, trainerScopeTeam, updateDeliveryField, visibleTeams]);
 
   if (loading) return <div className="loading-screen">{messages.app.loading}</div>;
   if (error) return (
@@ -826,6 +927,66 @@ export default function App() {
           {pageContent}
         </div>
       </div>
+
+      {registrationModalOpen && !hasPrivilegedAccess && (
+        <div className="session-profile-overlay" onClick={closeRegistrationModal}>
+          <div className="session-profile-modal registration-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="card registration-modal-card">
+              <div className="card-header registration-modal-head">
+                <div className="card-header-left">
+                  <span className="eyebrow">{locale === "de" ? "Anmeldung" : "Registration"}</span>
+                  <h3>{locale === "de" ? "Modul anmelden" : "Register module"}</h3>
+                </div>
+                <button type="button" className="btn btn-secondary" onClick={closeRegistrationModal}>
+                  {messages.common.actions.close}
+                </button>
+              </div>
+              <div className="card-body flush">
+                <RegistrationWorkspace
+                  employees={employees}
+                  templates={templates}
+                  submissions={allSubmissions}
+                  registrations={moduleRegistrations}
+                  visibleTeams={visibleTeams}
+                  lockedTeam={null}
+                  hasPrivilegedAccess={false}
+                  selectedEmployeeId={selectedEmployeeId}
+                  selectedTemplateId={selectedTemplateId}
+                  busy={registrationBusy}
+                  message={registrationMessage}
+                  error={actionError}
+                  variant="embedded"
+                  onSelectEmployee={setSelectedEmployeeId}
+                  onSelectTemplate={setSelectedTemplateId}
+                  onCreateRegistration={handleCreateModuleRegistration}
+                  onOpenDelivery={handleOpenDeliveryForModule}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {registrationConfirmMessage && !hasPrivilegedAccess && (
+        <div className="session-profile-overlay registration-confirm-overlay">
+          <div className="registration-confirm-dialog card" role="dialog" aria-modal="true" aria-labelledby="registration-confirm-title">
+            <div className="card-header">
+              <div className="card-header-left">
+                <span className="eyebrow">{locale === "de" ? "Bestätigung" : "Confirmation"}</span>
+                <h3 id="registration-confirm-title">{locale === "de" ? "Anmeldung gesendet" : "Registration sent"}</h3>
+              </div>
+            </div>
+            <div className="card-body registration-confirm-body">
+              <p>{registrationConfirmMessage}</p>
+              <div className="registration-confirm-actions">
+                <button type="button" className="btn btn-primary" onClick={acknowledgeRegistrationConfirm}>
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

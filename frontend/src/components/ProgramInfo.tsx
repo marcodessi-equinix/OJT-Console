@@ -1,6 +1,10 @@
 ﻿import { useState } from "react";
 import { useLanguage } from "../features/language/LanguageProvider";
 
+interface Props {
+  onOpenRegistration?: () => void;
+}
+
 const tierBadgeLogos = {
   bronze: "/eqx_digital-learning-badges_CustomerOps_Bronze.png",
   silver: "/Customer%20Operations%20-%20Silver%20Badge%20Cross%20Connects.svg",
@@ -151,7 +155,12 @@ const content = {
     tierSilver: "Advanced skills and expanded responsibility",
     tierGold: "Mastery-level expertise and leadership capability",
     footer:
-      "At Equinix, we are committed to building the best data centre workforce on earth. Our Badging programs are designed to provide progressive skill and knowledge development to learners."
+      "At Equinix, we are committed to building the best data centre workforce on earth. Our Badging programs are designed to provide progressive skill and knowledge development to learners.",
+    registrationEyebrow: "Next step",
+    registrationTitle: "Completed your e-learning module?",
+    registrationCta: "OJT Registration",
+    registrationHint: "Register here so a trainer can contact you for the next step in your OJT flow.",
+    registrationModalTitle: "Module registration"
   },
   de: {
     heroEyebrow: "Equinix Learning & Development",
@@ -296,7 +305,12 @@ const content = {
     tierSilver: "Fortgeschrittene Fähigkeiten und erweiterte Verantwortung",
     tierGold: "Expertenwissen und Führungskompetenz",
     footer:
-      "Bei Equinix setzen wir uns dafür ein, die beste Rechenzentrums-Belegschaft der Welt aufzubauen. Unsere Badging-Programme sind darauf ausgelegt, Lernenden progressive Kompetenz- und Wissensentwicklung zu bieten."
+      "Bei Equinix setzen wir uns dafür ein, die beste Rechenzentrums-Belegschaft der Welt aufzubauen. Unsere Badging-Programme sind darauf ausgelegt, Lernenden progressive Kompetenz- und Wissensentwicklung zu bieten.",
+    registrationEyebrow: "Nächster Schritt",
+    registrationTitle: "E-Learning Modul abgeschlossen?",
+    registrationCta: "OJT Anmeldung",
+    registrationHint: "Melde dich hier an, damit sich ein Trainer für den nächsten Schritt in deinem OJT-Ablauf bei dir melden kann.",
+    registrationModalTitle: "Modulanmeldung"
   }
 } as const;
 
@@ -326,7 +340,7 @@ const benefitIcons: Record<string, React.ReactNode> = {
   )
 };
 
-export function ProgramInfo() {
+export function ProgramInfo({ onOpenRegistration }: Props) {
   const { locale } = useLanguage();
   const [activeTab, setActiveTab] = useState(2);
   const lang = locale;
@@ -352,21 +366,33 @@ export function ProgramInfo() {
 
       {/* PDF Downloads */}
       <section className="program-downloads">
-        <span className="program-downloads-label">{t.downloadLabel}</span>
-        <div className="program-downloads-btns">
-          <a href="/Bronze Badge Overview.pdf" download className="btn program-download-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-            {t.downloadEn}
-          </a>
-          <a href="/What to Expect GOA Bronze Badge-German.pdf" download className="btn program-download-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-            {t.downloadDe}
-          </a>
-          <a href="/GOA--Badging Prep Deck (SLT)_GER.pptx" download className="btn program-download-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-            {t.downloadDeck}
-          </a>
+        <div className="program-downloads-main">
+          <span className="program-downloads-label">{t.downloadLabel}</span>
+          <div className="program-downloads-btns">
+            <a href="/Bronze Badge Overview.pdf" download className="btn program-download-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+              {t.downloadEn}
+            </a>
+            <a href="/What to Expect GOA Bronze Badge-German.pdf" download className="btn program-download-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+              {t.downloadDe}
+            </a>
+            <a href="/GOA--Badging Prep Deck (SLT)_GER.pptx" download className="btn program-download-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+              {t.downloadDeck}
+            </a>
+          </div>
         </div>
+        {onOpenRegistration && (
+          <div className="program-downloads-cta">
+            <span className="eyebrow program-downloads-cta-eyebrow">{t.registrationEyebrow}</span>
+            <h3>{t.registrationTitle}</h3>
+            <p>{t.registrationHint}</p>
+            <button type="button" className="btn btn-primary program-registration-cta-btn" onClick={onOpenRegistration}>
+              {t.registrationCta}
+            </button>
+          </div>
+        )}
       </section>
 
       {/* Badge Areas */}

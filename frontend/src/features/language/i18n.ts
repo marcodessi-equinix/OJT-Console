@@ -9,7 +9,7 @@ export const translations = {
         info: "Programm Info",
         employees: "Mitarbeiter",
         documents: "Dokumente",
-        training: "Training",
+        training: "Anmeldung",
         delivery: "OJT Versand"
       },
       topbarAdmin: "Admin Login",
@@ -505,7 +505,7 @@ export const translations = {
         info: "Program Info",
         employees: "Employees",
         documents: "Documents",
-        training: "Training",
+        training: "Registration",
         delivery: "OJT Delivery"
       },
       topbarAdmin: "Admin Login",

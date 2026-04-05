@@ -118,6 +118,16 @@ export class AppDatabase {
         submission_id TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS module_registrations (
+        id TEXT PRIMARY KEY,
+        employee_id TEXT NOT NULL,
+        template_id TEXT NOT NULL,
+        module_key TEXT NOT NULL,
+        module_title TEXT NOT NULL,
+        team TEXT NOT NULL DEFAULT 'C-OPS',
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS app_settings (
         key TEXT PRIMARY KEY,
         value_json TEXT NOT NULL,
@@ -158,6 +168,12 @@ export class AppDatabase {
     this.ensureColumn("training_sessions", "employee_signature_data_url", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("training_sessions", "trainer_signature_data_url", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("training_sessions", "submission_id", "TEXT");
+    this.ensureColumn("module_registrations", "employee_id", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("module_registrations", "template_id", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("module_registrations", "module_key", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("module_registrations", "module_title", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("module_registrations", "team", "TEXT NOT NULL DEFAULT 'C-OPS'");
+    this.ensureColumn("module_registrations", "created_at", "TEXT NOT NULL DEFAULT ''");
   }
 
   private ensureColumn(tableName: string, columnName: string, definition: string): void {
