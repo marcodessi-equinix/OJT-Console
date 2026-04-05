@@ -12,11 +12,23 @@ import { createTrainerRouter } from "./routes/trainerRoutes";
 import { ensureTrainerDefaultPins } from "./repositories/employeeRepository";
 import { syncTemplatesFromDocuments } from "./services/docxTemplateService";
 
-async function bootstrap(): Promise<void> {
-  await appDatabase.initialize();
-  await ensureTrainerDefaultPins();
+async function runStartupStep(name: string, action: () => Promise<void>): Promise<void> {
+  console.log(`[startup] ${name}...`);
+
   try {
-    await syncTemplatesFromDocuments();
+    await action();
+    console.log(`[startup] ${name} complete.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`[startup] ${name} failed: ${message}`);
+  }
+}
+
+async function bootstrap(): Promise<void> {
+  await runStartupStep("Initialize database", () => appDatabase.initialize());
+  await runStartupStep("Ensure trainer default PINs", () => ensureTrainerDefaultPins());
+  try {
+    await runStartupStep("Sync templates from document sources", () => syncTemplatesFromDocuments());
   } catch (error) {
     console.warn(`Template sync skipped during startup: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -62,7 +74,7 @@ async function bootstrap(): Promise<void> {
     response.status(500).json({ message });
   });
 
-  app.listen(env.PORT, () => {
+  app.listen(env.PORT, "0.0.0.0", () => {
     console.log(`Backend listening on port ${env.PORT}`);
   });
 }

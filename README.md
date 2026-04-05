@@ -119,6 +119,7 @@ Nutze in Portainer einen Stack aus dem Git-Repository oder lade [compose.yaml](c
 ### Wichtige Voraussetzungen
 
 - Der Podman-Host sollte schreibbare absolute Linux-Pfade fuer Daten und Quelldokumente haben.
+- Auf Oracle Linux / RHEL mit SELinux muessen Bind-Mounts fuer Container lesbar bzw. schreibbar gelabelt sein. Die Compose-Dateien setzen dafuer jetzt `selinux: z` auf den Backend-Mounts.
 - Relative Volume-Pfade aus Git-Stacks sind in Portainer nicht in jeder Edition gleich nutzbar. Fuer eine robuste Installation solltest du die drei Mount-Pfade explizit als absolute Host-Pfade setzen.
 - Portainer dokumentiert fuer Podman offiziell einen root-basierten Host als Standardfall. Rootless Podman kann funktionieren, ist aber nicht die konservative Standardannahme.
 - Bei Git-Stacks wird das komplette Repository auf den Host geklont. Das Repository sollte daher keine grossen Rohdaten oder Submodule enthalten.
@@ -162,7 +163,8 @@ SMTP_PASS=
 
 ### Was du beim ersten Stack-Deploy beachten musst
 
-- Wenn die Dokumentpfade leer oder falsch sind, startet das Backend nicht sauber, weil es die OJT-Quellen beim Booten erwartet.
+- Wenn die Dokumentpfade leer oder falsch sind, startet das Backend jetzt trotzdem. Der automatische Template-Sync wird dann uebersprungen und nur im Backend-Log als Warnung ausgegeben.
+- Wenn `BACKEND_DATA_PATH` oder die Quelldokument-Mounts auf dem Host wegen Berechtigungen oder SELinux nicht zugreifbar sind, startet das Backend weiterhin nicht. Das zeigt sich im Frontend dann als `502 Bad Gateway`.
 - Wenn Portainer keine Builds aus dem Git-Repo ausfuehren darf, musst du den Stack per Upload/Web Editor deployen oder spaeter auf vorgebaute Images umstellen.
 - Wenn SMTP nicht gesetzt ist, bleibt die App trotzdem nutzbar. Der Versandfluss faellt dann auf den manuellen Prozess zurueck.
 - Die SQLite-Datenbank und erzeugte PDFs liegen unter `BACKEND_DATA_PATH`. Dieses Verzeichnis muss dauerhaft persistent sein.

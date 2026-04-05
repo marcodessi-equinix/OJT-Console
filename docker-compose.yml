@@ -24,14 +24,23 @@ services:
       - type: bind
         source: ${BACKEND_DATA_PATH:-./backend/data}
         target: /app/backend/data
+        bind:
+          create_host_path: true
+          selinux: z
       - type: bind
         source: ${ENGLISH_DOCUMENTS_SOURCE:-./English}
         target: /app/source-documents/English
         read_only: true
+        bind:
+          create_host_path: true
+          selinux: z
       - type: bind
         source: ${GERMAN_DOCUMENTS_SOURCE:-./German}
         target: /app/source-documents/German
         read_only: true
+        bind:
+          create_host_path: true
+          selinux: z
     expose:
       - "4000"
     healthcheck:
