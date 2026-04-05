@@ -211,6 +211,8 @@ export function DeliveryWorkspace({
   const sortLocale = getSortLocale(locale);
   const [submissionSearch, setSubmissionSearch] = useState("");
   const [recipientDraft, setRecipientDraft] = useState("");
+  const [editingRecipient, setEditingRecipient] = useState<string | null>(null);
+  const [editingRecipientDraft, setEditingRecipientDraft] = useState("");
   const [deliveryRecipients, setDeliveryRecipients] = useState<string[]>(settings.deliveryRecipients ?? []);
   const [deliveryEmailSubjectTemplate, setDeliveryEmailSubjectTemplate] = useState(settings.deliveryEmailSubjectTemplate ?? "");
   const [deliveryEmailBodyTemplate, setDeliveryEmailBodyTemplate] = useState(settings.deliveryEmailBodyTemplate ?? "");
@@ -484,12 +486,61 @@ export function DeliveryWorkspace({
       return;
     }
 
-    setDeliveryRecipients((current) => normalizeEmailList([...current, ...nextEntries]));
+    const nextRecipients = normalizeEmailList([...deliveryRecipients, ...nextEntries]);
+    setDeliveryRecipients(nextRecipients);
+    if (!form.primaryRecipient.trim() && nextRecipients.length > 0) {
+      onFieldChange("primaryRecipient", nextRecipients[0]);
+    }
     setRecipientDraft("");
   }
 
   function handleRemoveRecipient(recipient: string): void {
-    setDeliveryRecipients((current) => current.filter((item) => item !== recipient));
+    const nextRecipients = deliveryRecipients.filter((item) => item !== recipient);
+    setDeliveryRecipients(nextRecipients);
+
+    if (editingRecipient === recipient) {
+      setEditingRecipient(null);
+      setEditingRecipientDraft("");
+    }
+
+    if (form.primaryRecipient.trim().toLowerCase() === recipient) {
+      onFieldChange("primaryRecipient", nextRecipients[0] ?? "");
+    }
+  }
+
+  function handleStartEditRecipient(recipient: string): void {
+    setEditingRecipient(recipient);
+    setEditingRecipientDraft(recipient);
+  }
+
+  function handleCancelRecipientEdit(): void {
+    setEditingRecipient(null);
+    setEditingRecipientDraft("");
+  }
+
+  function handleSaveRecipientEdit(): void {
+    if (!editingRecipient) {
+      return;
+    }
+
+    const nextEntries = parseEmailEntries(editingRecipientDraft);
+    if (nextEntries.length !== 1) {
+      return;
+    }
+
+    const nextRecipient = nextEntries[0];
+    const nextRecipients = normalizeEmailList(
+      deliveryRecipients.map((recipient) => recipient === editingRecipient ? nextRecipient : recipient)
+    );
+
+    setDeliveryRecipients(nextRecipients);
+
+    if (form.primaryRecipient.trim().toLowerCase() === editingRecipient) {
+      onFieldChange("primaryRecipient", nextRecipient);
+    }
+
+    setEditingRecipient(null);
+    setEditingRecipientDraft("");
   }
 
   function formatCompletionProgress(doneCount: number, totalCount: number): string {
@@ -650,10 +701,38 @@ export function DeliveryWorkspace({
                   <div className="session-recipient-list">
                     {deliveryRecipients.length ? deliveryRecipients.map((recipient) => (
                       <div key={recipient} className="session-recipient-item">
-                        <span>{recipient}</span>
-                        <button className="btn btn-sm" type="button" onClick={() => handleRemoveRecipient(recipient)}>
-                          {messages.common.actions.delete}
-                        </button>
+                        {editingRecipient === recipient ? (
+                          <div className="session-recipient-inline-editor">
+                            <input
+                              className="form-input"
+                              type="text"
+                              value={editingRecipientDraft}
+                              onChange={(event) => setEditingRecipientDraft(event.target.value)}
+                              placeholder={copy.recipientsPlaceholder}
+                              title={copy.recipientsLabel}
+                            />
+                            <div className="session-recipient-actions">
+                              <button className="btn btn-sm btn-primary" type="button" onClick={handleSaveRecipientEdit} disabled={!editingRecipientDraft.trim()}>
+                                {messages.common.actions.save}
+                              </button>
+                              <button className="btn btn-sm" type="button" onClick={handleCancelRecipientEdit}>
+                                {messages.common.actions.cancel}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <span>{recipient}</span>
+                            <div className="session-recipient-actions">
+                              <button className="btn btn-sm" type="button" onClick={() => handleStartEditRecipient(recipient)}>
+                                {messages.common.actions.edit}
+                              </button>
+                              <button className="btn btn-sm btn-danger" type="button" onClick={() => handleRemoveRecipient(recipient)}>
+                                {messages.common.actions.delete}
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )) : <p className="text-sm text-sec">{messages.admin.recipientsEmpty}</p>}
                   </div>

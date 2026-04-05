@@ -21,12 +21,9 @@ services:
       ENGLISH_DOCUMENTS_ROOT: /app/source-documents/English
       GERMAN_DOCUMENTS_ROOT: /app/source-documents/German
     volumes:
-      - type: bind
-        source: ${BACKEND_DATA_PATH:-./backend/data}
+      - type: volume
+        source: backend_data
         target: /app/backend/data
-        bind:
-          create_host_path: true
-          selinux: z
       - type: bind
         source: ${ENGLISH_DOCUMENTS_SOURCE:-./English}
         target: /app/source-documents/English
@@ -80,3 +77,7 @@ networks:
   npm_proxy:
     external: true
     name: ${NPM_NETWORK:-nginx-proxy-manager_default}
+
+volumes:
+  backend_data:
+    name: ${BACKEND_DATA_VOLUME:-ojt-console-backend-data}

@@ -18,6 +18,7 @@ export interface EmployeeProfile {
   role: EmployeeRole;
   team: EmployeeTeam;
   hasPin: boolean;
+  mustChangePin: boolean;
   createdAt: string;
 }
 

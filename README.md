@@ -118,9 +118,9 @@ Nutze in Portainer einen Stack aus dem Git-Repository oder lade [compose.yaml](c
 
 ### Wichtige Voraussetzungen
 
-- Der Podman-Host sollte schreibbare absolute Linux-Pfade fuer Daten und Quelldokumente haben.
-- Auf Oracle Linux / RHEL mit SELinux muessen Bind-Mounts fuer Container lesbar bzw. schreibbar gelabelt sein. Die Compose-Dateien setzen dafuer jetzt `selinux: z` auf den Backend-Mounts.
-- Relative Volume-Pfade aus Git-Stacks sind in Portainer nicht in jeder Edition gleich nutzbar. Fuer eine robuste Installation solltest du die drei Mount-Pfade explizit als absolute Host-Pfade setzen.
+- Der Podman-Host sollte schreibbare absolute Linux-Pfade fuer die Quelldokumente haben.
+- Die App-Daten liegen jetzt in einer benannten Compose-Volume. Diese wird beim ersten Deploy automatisch angelegt und bei einer spaeteren Neuinstallation wiederverwendet, solange sie in Portainer nicht explizit mit geloescht wird.
+- Auf Oracle Linux / RHEL mit SELinux muessen die Bind-Mounts fuer die Quelldokumente weiterhin passend gelabelt sein. Die Compose-Dateien setzen dafuer `selinux: z` auf den Dokument-Mounts.
 - Portainer dokumentiert fuer Podman offiziell einen root-basierten Host als Standardfall. Rootless Podman kann funktionieren, ist aber nicht die konservative Standardannahme.
 - Bei Git-Stacks wird das komplette Repository auf den Host geklont. Das Repository sollte daher keine grossen Rohdaten oder Submodule enthalten.
 
@@ -129,7 +129,7 @@ Nutze in Portainer einen Stack aus dem Git-Repository oder lade [compose.yaml](c
 Mindestens diese Variablen solltest du im Stack setzen:
 
 ```env
-BACKEND_DATA_PATH=/srv/ojt-console/data
+BACKEND_DATA_VOLUME=ojt-console-backend-data
 ENGLISH_DOCUMENTS_SOURCE=/srv/ojt-documents/English
 GERMAN_DOCUMENTS_SOURCE=/srv/ojt-documents/German
 NPM_NETWORK=nginx-proxy-manager_default
@@ -138,6 +138,8 @@ ADMIN_IDENTIFIER=admin
 ADMIN_NAME=OJT Admin
 ADMIN_PIN=1234
 ```
+
+`BACKEND_DATA_VOLUME` ist die persistente App-Volume fuer SQLite-Datenbank, Mitarbeiter, Trainingsfortschritt, Sessions, Einstellungen, importierte Dokumentkopien und erzeugte PDFs. Mit dem festen Namen bleibt diese Volume auch dann wiederverwendbar, wenn der Stack spaeter geloescht und neu deployt wird.
 
 `NPM_NETWORK` muss dem bereits existierenden gemeinsamen Netzwerk von Nginx Proxy Manager und dieser App entsprechen. Beide Services, `frontend` und `backend`, werden darueber verbunden. Der Backend-Service bleibt trotzdem ohne Host-Port und wird nur intern ueber den Service-Alias `backend:4000` erreicht.
 
@@ -154,6 +156,70 @@ SMTP_USER=
 SMTP_PASS=
 ```
 
+### Genau das in Portainer eintragen
+
+Wenn du in Portainer einen neuen Stack anlegst, kannst du dich an diesen Feldern orientieren:
+
+1. `Name`
+  `ojt-console`
+2. `Build method`
+  `Git repository` oder alternativ `Web editor` beziehungsweise `Upload` wenn dein Portainer keine Builds aus Git ausfuehren darf.
+3. `Repository URL`
+  `https://github.com/marcodessi-equinix/OJT-Console.git`
+4. `Repository reference`
+  `refs/heads/main` oder leer lassen, wenn Portainer standardmaessig den Hauptbranch nutzt.
+5. `Compose path`
+  `docker-compose.yml`
+  Alternativ funktioniert auch `compose.yaml`.
+6. `Environment variables`
+  Diesen Block direkt uebernehmen und nur Domains, Mailserver und Dokumentpfade auf deinen Server anpassen:
+
+```env
+BACKEND_DATA_VOLUME=ojt-console-backend-data
+ENGLISH_DOCUMENTS_SOURCE=/srv/ojt-documents/English
+GERMAN_DOCUMENTS_SOURCE=/srv/ojt-documents/German
+NPM_NETWORK=nginx-proxy-manager_default
+FRONTEND_PORT=9130
+FRONTEND_ORIGIN=https://fr2-ojtconsole.equinix.com
+ADMIN_IDENTIFIER=admin
+ADMIN_NAME=OJT Admin
+ADMIN_PIN=1234
+MAIL_FROM=ojt-app@example.com
+DEFAULT_PRIMARY_RECIPIENT=training-owner@example.com
+DEFAULT_CC_ME=
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
+```
+
+Fuer die einzelnen Werte gilt:
+
+- `BACKEND_DATA_VOLUME`: fester Name der persistenten App-Volume. Diesen Namen spaeter nicht aendern, wenn bestehende Daten erhalten bleiben sollen.
+- `ENGLISH_DOCUMENTS_SOURCE`: absoluter Linux-Pfad auf dem Host zu den englischen Quelldokumenten.
+- `GERMAN_DOCUMENTS_SOURCE`: absoluter Linux-Pfad auf dem Host zu den deutschen Quelldokumenten.
+- `NPM_NETWORK`: Name des bereits existierenden externen Netzwerks von Nginx Proxy Manager.
+- `FRONTEND_PORT`: Host-Port, ueber den die App erreichbar ist, falls du sie direkt ohne vorgeschalteten Proxy pruefen willst.
+- `FRONTEND_ORIGIN`: oeffentliche URL des Frontends. Fuer lokale Tests kann hier auch `http://<server>:9130` stehen.
+- `ADMIN_IDENTIFIER`, `ADMIN_NAME`, `ADMIN_PIN`: initiale Admin-Zugangsdaten.
+- `MAIL_FROM` bis `SMTP_PASS`: nur fuellen, wenn der Mailversand direkt aus der App genutzt werden soll.
+
+### Portainer-Schritte ohne Interpretationsspielraum
+
+1. In Portainer `Stacks` oeffnen.
+2. `Add stack` waehlen.
+3. Als Stack-Namen `ojt-console` eintragen.
+4. Entweder `Git repository` waehlen oder die Compose-Datei per Upload/Web Editor einspielen.
+5. Bei `Git repository` diese Werte setzen:
+  `Repository URL`: `https://github.com/marcodessi-equinix/OJT-Console.git`
+  `Compose path`: `docker-compose.yml`
+6. Im Bereich `Environment variables` den obigen Variablenblock eintragen.
+7. Besonders wichtig: `BACKEND_DATA_VOLUME` immer gleich lassen, zum Beispiel `ojt-console-backend-data`.
+8. `Deploy the stack` ausfuehren.
+9. Danach pruefen, ob das Volume automatisch angelegt wurde und der Backend-Container gesund startet.
+10. Falls du spaeter neu installierst: denselben Stack erneut deployen und denselben Wert fuer `BACKEND_DATA_VOLUME` wiederverwenden.
+
 ### Deploy-Ablauf in Portainer
 
 1. Stack anlegen.
@@ -163,6 +229,17 @@ SMTP_PASS=
 5. Umgebungsvariablen aus [stack.env.example](stack.env.example) oder manuell pflegen.
 6. Deploy ausfuehren.
 7. Anwendung ueber `http://<server>:<FRONTEND_PORT>` aufrufen.
+
+Wenn du den Stack spaeter in Portainer entfernst und erneut installierst, bleiben alle App-Daten erhalten, solange du dieselbe `BACKEND_DATA_VOLUME` verwendest und beim Stack-Loeschen nicht die Option zum Mitloeschen der Volumes aktivierst.
+
+Gespeichert bleiben damit insbesondere:
+
+- Mitarbeiter und Trainer
+- Trainingsfortschritt pro Mitarbeiter
+- laufende und abgeschlossene Sessions
+- Einstellungen der App
+- importierte Dokumentkopien im App-Datenspeicher
+- erzeugte PDFs und Submission-Daten
 
 ### NPM-Topologie
 
@@ -174,10 +251,10 @@ SMTP_PASS=
 ### Was du beim ersten Stack-Deploy beachten musst
 
 - Wenn die Dokumentpfade leer oder falsch sind, startet das Backend jetzt trotzdem. Der automatische Template-Sync wird dann uebersprungen und nur im Backend-Log als Warnung ausgegeben.
-- Wenn `BACKEND_DATA_PATH` oder die Quelldokument-Mounts auf dem Host wegen Berechtigungen oder SELinux nicht zugreifbar sind, startet das Backend weiterhin nicht. Das zeigt sich im Frontend dann als `502 Bad Gateway`.
+- Wenn die Quelldokument-Mounts auf dem Host wegen Berechtigungen oder SELinux nicht zugreifbar sind, startet das Backend weiterhin nicht. Das zeigt sich im Frontend dann als `502 Bad Gateway`.
 - Wenn Portainer keine Builds aus dem Git-Repo ausfuehren darf, musst du den Stack per Upload/Web Editor deployen oder spaeter auf vorgebaute Images umstellen.
 - Wenn SMTP nicht gesetzt ist, bleibt die App trotzdem nutzbar. Der Versandfluss faellt dann auf den manuellen Prozess zurueck.
-- Die SQLite-Datenbank und erzeugte PDFs liegen unter `BACKEND_DATA_PATH`. Dieses Verzeichnis muss dauerhaft persistent sein.
+- Die SQLite-Datenbank und erzeugte PDFs liegen in der benannten Volume `BACKEND_DATA_VOLUME`. Diese Volume ist der persistente Speicher der App.
 
 <p align="center">
   <img src="docs/assets/portainer-flow.svg" alt="Portainer Deployment Flow" width="100%" />

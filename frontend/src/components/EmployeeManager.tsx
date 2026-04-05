@@ -17,8 +17,8 @@ interface Props {
   lockedTeam?: EmployeeTeam | null;
   onSelect: (id: string) => void;
   onOpenDelivery: (id: string) => void;
-  onCreate: (payload: { firstName: string; lastName: string; email: string; role: EmployeeRole; team: EmployeeTeam }) => Promise<void>;
-  onUpdate: (id: string, payload: { firstName?: string; lastName?: string; email?: string; role?: EmployeeRole; team?: EmployeeTeam }) => Promise<void>;
+  onCreate: (payload: { firstName: string; lastName: string; email: string; role: EmployeeRole; team: EmployeeTeam; pin?: string }) => Promise<void>;
+  onUpdate: (id: string, payload: { firstName?: string; lastName?: string; email?: string; role?: EmployeeRole; team?: EmployeeTeam; pin?: string }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onBulkImport: (items: Array<{ firstName?: string; lastName?: string; name?: string; email: string; role?: EmployeeRole; team?: EmployeeTeam }>) => Promise<{ created: number; skipped: number }>;
 }
@@ -40,6 +40,10 @@ function parseRole(value: unknown): EmployeeRole {
 
 function parseTeam(value: unknown): EmployeeTeam {
   return String(value ?? "").trim().toUpperCase() === "F-OPS" ? "F-OPS" : "C-OPS";
+}
+
+function normalizePinInput(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 6);
 }
 
 function readCell(row: Record<string, unknown>, keys: string[]): string {
@@ -118,6 +122,7 @@ export function EmployeeManager({
   const [createEmail, setCreateEmail] = useState("");
   const [createRole, setCreateRole] = useState<EmployeeRole>("employee");
   const [createTeam, setCreateTeam] = useState<EmployeeTeam>("C-OPS");
+  const [createPin, setCreatePin] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFirstName, setEditFirstName] = useState("");
@@ -125,6 +130,7 @@ export function EmployeeManager({
   const [editEmail, setEditEmail] = useState("");
   const [editRole, setEditRole] = useState<EmployeeRole>("employee");
   const [editTeam, setEditTeam] = useState<EmployeeTeam>("C-OPS");
+  const [editPin, setEditPin] = useState("");
   const [saving, setSaving] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -188,6 +194,15 @@ export function EmployeeManager({
   const isCreateMode = showCreate && !editingId;
   const activeEditorRole = isCreateMode ? createRole : editRole;
   const activeEditorBusy = isCreateMode ? creating : saving;
+  const activeEditorPin = isCreateMode ? createPin : editPin;
+  const editingEmployee = editingId ? employees.find((employee) => employee.id === editingId) ?? null : null;
+  const activeEditorPinValid = activeEditorRole !== "trainer" || !activeEditorPin || /^\d{4}(\d{2})?$/.test(activeEditorPin);
+  const activeEditorHasCustomPin = /^\d{4}(\d{2})?$/.test(activeEditorPin) && activeEditorPin !== "2026";
+  const activeTrainerNeedsPinChange = activeEditorRole === "trainer" && (
+    activeEditorPin.trim()
+      ? !activeEditorHasCustomPin
+      : isCreateMode || editingEmployee?.role !== "trainer" || Boolean(editingEmployee?.mustChangePin)
+  );
   const listLogo = activeHeaderFilter === "trainer"
     ? LOGO_TRAINER
     : activeHeaderFilter === "F-OPS"
@@ -203,6 +218,7 @@ export function EmployeeManager({
     setCreateEmail("");
     setCreateRole("employee");
     setCreateTeam(lockedTeam ?? "C-OPS");
+    setCreatePin("");
   }
 
   function closeEditor(): void {
@@ -280,7 +296,8 @@ export function EmployeeManager({
         lastName: createLastName.trim(),
         email: createEmail.trim(),
         role: createRole,
-        team: createTeam
+        team: createTeam,
+        pin: createRole === "trainer" && createPin.trim() ? createPin.trim() : undefined
       });
       resetCreateForm();
       setShowCreate(false);
@@ -297,6 +314,7 @@ export function EmployeeManager({
     setEditEmail(employee.email);
     setEditRole(employee.role);
     setEditTeam(employee.team);
+    setEditPin("");
   }
 
   async function handleSaveEdit() {
@@ -308,9 +326,11 @@ export function EmployeeManager({
         lastName: editLastName.trim(),
         email: editEmail.trim(),
         role: editRole,
-        team: editTeam
+        team: editTeam,
+        pin: editRole === "trainer" && editPin.trim() ? editPin.trim() : undefined
       });
       setEditingId(null);
+      setEditPin("");
     } finally {
       setSaving(false);
     }
@@ -414,7 +434,29 @@ export function EmployeeManager({
             <div className="employee-meta-badges">
               <span className={`badge ${teamBadgeClass}`}>{employee.team}</span>
               <span className="badge badge-default">{employee.role === "trainer" ? messages.common.roles.trainer : messages.common.roles.employee}</span>
-              {employee.role === "trainer" && <span className={`badge ${employee.hasPin ? "badge-success" : "badge-warn"}`}>{employee.hasPin ? messages.employees.pinSet : messages.employees.pinMissing}</span>}
+              {employee.role === "trainer" && (
+                employee.mustChangePin ? (
+                  canManage ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelect(employee.id);
+                        startEdit(employee);
+                      }}
+                    >
+                      {messages.employees.pinChangeAction}
+                    </button>
+                  ) : (
+                    <span className="badge badge-error">{messages.employees.pinChangeAction}</span>
+                  )
+                ) : (
+                  <span className={`badge ${employee.hasPin ? "badge-success" : "badge-warn"}`}>
+                    {employee.hasPin ? messages.employees.pinUpdated : messages.employees.pinMissing}
+                  </span>
+                )
+              )}
               {progressSummary && <span className={`badge badge-${progressTone}`}>{statusLabel(progressSummary.status, messages)}</span>}
             </div>
           </div>
@@ -594,14 +636,31 @@ export function EmployeeManager({
             {activeEditorRole === "trainer" && (
               <div className="form-group emp-pin-field">
                 <span className="form-label">{messages.employees.pinLabel}</span>
-                <div className="emp-pin-static" aria-live="polite">
-                  <strong>2026</strong>
-                  <span>{isCreateMode ? messages.employees.pinCreateHelp : messages.employees.pinEditHelpSet}</span>
+                <div className={`emp-pin-static ${activeTrainerNeedsPinChange ? "is-warning" : "is-success"}`} aria-live="polite">
+                  <strong>{activeTrainerNeedsPinChange ? messages.employees.pinDefaultBadge : messages.employees.pinUpdated}</strong>
+                  <span>
+                    {isCreateMode
+                      ? messages.employees.pinCreateHelp
+                      : activeTrainerNeedsPinChange
+                        ? messages.employees.pinEditHelpMissing
+                        : messages.employees.pinEditHelpSet}
+                  </span>
                 </div>
+                <input
+                  id="employee-editor-pin"
+                  className="form-input"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={isCreateMode ? createPin : editPin}
+                  onChange={(event) => isCreateMode ? setCreatePin(normalizePinInput(event.target.value)) : setEditPin(normalizePinInput(event.target.value))}
+                  placeholder={isCreateMode ? messages.employees.pinPlaceholderCreate : messages.employees.pinPlaceholderUpdate}
+                  title={messages.employees.pinLabel}
+                />
               </div>
             )}
             <div className="emp-edit-actions">
-              <button className="btn btn-primary" onClick={() => void (isCreateMode ? handleCreate() : handleSaveEdit())} disabled={activeEditorBusy}>
+              <button className="btn btn-primary" onClick={() => void (isCreateMode ? handleCreate() : handleSaveEdit())} disabled={activeEditorBusy || !activeEditorPinValid}>
                 {isCreateMode ? (creating ? messages.employees.createBusy : messages.employees.createSubmit) : (saving ? messages.common.actions.saving : messages.common.actions.save)}
               </button>
               {!isCreateMode && editingId && <button className="btn btn-danger" onClick={() => void handleDelete(editingId)}>{messages.common.actions.delete}</button>}

@@ -1324,6 +1324,19 @@ textarea.form-input { resize: vertical; min-height: 72px; }
   background: linear-gradient(180deg, var(--c-surface), var(--c-surface-alt));
 }
 
+.session-recipient-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-recipient-inline-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  width: 100%;
+}
+
 .session-admin-textarea {
   min-height: 10rem;
   resize: vertical;
@@ -1340,6 +1353,16 @@ textarea.form-input { resize: vertical; min-height: 72px; }
   color: var(--c-text);
 }
 
+.emp-pin-static.is-warning {
+  border-color: rgba(220, 38, 38, 0.4);
+  background: linear-gradient(180deg, rgba(220, 38, 38, 0.08), var(--c-surface-alt));
+}
+
+.emp-pin-static.is-success {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: linear-gradient(180deg, rgba(22, 163, 74, 0.08), var(--c-surface-alt));
+}
+
 .emp-pin-static strong {
   font-size: 20px;
   font-weight: 800;
@@ -1350,6 +1373,10 @@ textarea.form-input { resize: vertical; min-height: 72px; }
   font-size: 12px;
   line-height: 1.55;
   color: var(--c-text-sec);
+}
+
+.emp-pin-field .form-input {
+  margin-top: 10px;
 }
 
 @media (max-width: 900px) {

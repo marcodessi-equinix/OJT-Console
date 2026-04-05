@@ -84,6 +84,7 @@ function mapEmployee(row: EmployeeRow): EmployeeProfile {
     role: (row.role === "trainer" ? "trainer" : "employee") as EmployeeProfile["role"],
     team: normalizeEmployeeTeam(row.team),
     hasPin: row.role === "trainer" && Boolean(row.trainer_pin_hash),
+    mustChangePin: row.role === "trainer" && row.trainer_pin_hash === DEFAULT_TRAINER_PIN_HASH,
     createdAt: row.created_at
   };
 }
@@ -251,6 +252,7 @@ export async function createEmployee(input: { firstName?: string; lastName?: str
     role,
     team,
     hasPin: Boolean(trainerPinHash),
+    mustChangePin: role === "trainer" && trainerPinHash === DEFAULT_TRAINER_PIN_HASH,
     createdAt: new Date().toISOString()
   };
 
@@ -331,7 +333,8 @@ export async function updateEmployee(
     email: newEmail,
     role: newRole as EmployeeProfile["role"],
     team: newTeam,
-    hasPin: newRole === "trainer" && Boolean(nextPinHash)
+    hasPin: newRole === "trainer" && Boolean(nextPinHash),
+    mustChangePin: newRole === "trainer" && nextPinHash === DEFAULT_TRAINER_PIN_HASH
   };
 }
 
@@ -379,6 +382,7 @@ export async function bulkCreateEmployees(
       role: item.role === "trainer" ? "trainer" : "employee",
       team: normalizeEmployeeTeam(item.team),
       hasPin: item.role === "trainer",
+      mustChangePin: item.role === "trainer",
       createdAt: new Date().toISOString()
     };
 

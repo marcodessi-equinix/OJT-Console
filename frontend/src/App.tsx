@@ -521,13 +521,13 @@ export default function App() {
     }
   }, [selectedTemplateId]);
 
-  const handleCreateEmployee = useCallback(async (payload: { firstName: string; lastName: string; email: string; role: EmployeeRole; team: EmployeeTeam }): Promise<void> => {
+  const handleCreateEmployee = useCallback(async (payload: { firstName: string; lastName: string; email: string; role: EmployeeRole; team: EmployeeTeam; pin?: string }): Promise<void> => {
     const employee = await createEmployee(payload as Parameters<typeof createEmployee>[0]);
     setEmployees(await fetchEmployees());
     setSelectedEmployeeId(employee.id);
   }, []);
 
-  const handleUpdateEmployee = useCallback(async (id: string, payload: { firstName?: string; lastName?: string; email?: string; role?: EmployeeRole; team?: EmployeeTeam }): Promise<void> => {
+  const handleUpdateEmployee = useCallback(async (id: string, payload: { firstName?: string; lastName?: string; email?: string; role?: EmployeeRole; team?: EmployeeTeam; pin?: string }): Promise<void> => {
     await apiUpdateEmployee(id, payload);
     setEmployees(await fetchEmployees());
   }, []);
