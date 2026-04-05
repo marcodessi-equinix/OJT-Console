@@ -15,7 +15,11 @@ import { syncTemplatesFromDocuments } from "./services/docxTemplateService";
 async function bootstrap(): Promise<void> {
   await appDatabase.initialize();
   await ensureTrainerDefaultPins();
-  await syncTemplatesFromDocuments();
+  try {
+    await syncTemplatesFromDocuments();
+  } catch (error) {
+    console.warn(`Template sync skipped during startup: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   const app = express();
   app.set("trust proxy", 1);
