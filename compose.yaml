@@ -79,4 +79,4 @@ services:
 networks:
   npm_proxy:
     external: true
-    name: ${NPM_NETWORK:-npm_default}
+    name: ${NPM_NETWORK:-nginx-proxy-manager_default}

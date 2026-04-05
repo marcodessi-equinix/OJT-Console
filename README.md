@@ -132,7 +132,7 @@ Mindestens diese Variablen solltest du im Stack setzen:
 BACKEND_DATA_PATH=/srv/ojt-console/data
 ENGLISH_DOCUMENTS_SOURCE=/srv/ojt-documents/English
 GERMAN_DOCUMENTS_SOURCE=/srv/ojt-documents/German
-NPM_NETWORK=npm_default
+NPM_NETWORK=nginx-proxy-manager_default
 FRONTEND_PORT=9130
 ADMIN_IDENTIFIER=admin
 ADMIN_NAME=OJT Admin
