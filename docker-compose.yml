@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: 4000
-      FRONTEND_ORIGIN: http://localhost:${FRONTEND_PORT:-9130}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:${FRONTEND_PORT:-9130}}
       ADMIN_IDENTIFIER: ${ADMIN_IDENTIFIER:-admin}
       ADMIN_NAME: ${ADMIN_NAME:-OJT Admin}
       ADMIN_PIN: ${ADMIN_PIN:-1234}
@@ -32,8 +32,6 @@ services:
         source: ${GERMAN_DOCUMENTS_SOURCE:-./German}
         target: /app/source-documents/German
         read_only: true
-    ports:
-      - "${BACKEND_PORT:-4000}:4000"
     expose:
       - "4000"
     healthcheck:
