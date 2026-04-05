@@ -32,6 +32,8 @@ services:
         source: ${GERMAN_DOCUMENTS_SOURCE:-./German}
         target: /app/source-documents/German
         read_only: true
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
     expose:
       - "4000"
     healthcheck:
